@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>10x Prompt - Enhance Your Prompts</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Favicon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2220%22 fill=%22%23000%22 /><text x=%2250%22 y=%2265%22 font-family=%22Arial, sans-serif%22 font-size=%2245%22 font-weight=%22bold%22 text-anchor=%22middle%22 fill=%22%23fff%22>10x</text></svg>" type="image/svg+xml">
+    <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='favicon.svg') }}">
+    
+    <!-- For older browsers -->
+    <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>10x Prompt</h1>
+            <div class="subtitle">Transform simple prompts into powerful instructions</div>
+        </header>
+        
+        <main class="main-content">
+            <!-- How to Use Section (Collapsible) -->
+            <section class="how-to-use">
+                <div class="how-to-use-header" id="how-to-use-header">
+                    <h2>How to Use</h2>
+                    <span class="toggle-icon">▼</span>
+                </div>
+                <div class="how-to-use-content" id="how-to-use-content">
+                    <div class="how-to-use-section">
+                        <h3>What is 10x Prompt?</h3>
+                        <p>10x Prompt is a tool that enhances your basic prompts, making them 10 times more effective for large language models (LLMs) like ChatGPT, DeepSeek, Claude, or any other AI assistant.</p>
+                    </div>
+                    
+                    <div class="how-to-use-section">
+                        <h3>User Prompts vs. System Prompts</h3>
+                        <div class="prompt-types">
+                            <div class="prompt-type-card">
+                                <h4>User Prompts</h4>
+                                <p>These are the actual queries or requests you send to an AI. They're like questions you ask or instructions you give in a normal conversation.</p>
+                                <p><strong>Example:</strong> "Write a blog post about machine learning."</p>
+                                <p><strong>When to use:</strong> For specific tasks, questions, or content generation that you want the AI to perform or answer.</p>
+                            </div>
+                            <div class="prompt-type-card">
+                                <h4>System Prompts</h4>
+                                <p>These are behind-the-scenes instructions that tell the AI <em>how</em> to behave overall. They set the tone, style, and behavior for the AI's responses.</p>
+                                <p><strong>Example:</strong> "Always explain concepts using simple analogies and avoid technical jargon."</p>
+                                <p><strong>When to use:</strong> When building your own AI assistant or setting custom instructions in platforms that support system prompts.</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="how-to-use-section">
+                        <h3>Using This Tool</h3>
+                        <ol>
+                            <li>Select whether you want to enhance a <strong>User Prompt</strong> or a <strong>System Prompt</strong>.</li>
+                            <li>Enter your prompt in the text area or click one of the template buttons to start with a template.</li>
+                            <li>You can add multiple templates to build more complex prompts - they'll be added at your cursor position.</li>
+                            <li>Use the <strong>Clear</strong> button to erase your prompt and start over if needed.</li>
+                            <li>Click the <strong>Enhance Prompt</strong> button to generate an improved version.</li>
+                            <li>Copy the enhanced prompt using the <strong>Copy</strong> button to use with your preferred AI.</li>
+                        </ol>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Prompt Type Toggle -->
+            <div class="prompt-type-toggle">
+                <button id="user-toggle" class="toggle-btn active">User Prompt</button>
+                <button id="system-toggle" class="toggle-btn">System Prompt</button>
+            </div>
+            
+            <!-- Input Section -->
+            <section class="input-section">
+                <textarea id="prompt-input" placeholder="Enter your prompt here..."></textarea>
+                
+                <div class="button-row">
+                    <div id="templates-section" class="templates-section">
+                        <!-- Template buttons will be generated via JavaScript -->
+                    </div>
+                    
+                    <div class="action-buttons">
+                        <button id="clear-btn" class="clear-btn">Clear</button>
+                        <button id="enhance-btn" class="enhance-btn">Enhance Prompt</button>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Loading Indicator -->
+            <div id="loading" class="loading">
+                <div class="spinner"></div>
+                <p>Enhancing your prompt...</p>
+            </div>
+            
+            <!-- Output Section -->
+            <section class="output-section">
+                <div class="output-header">
+                    <div class="output-title">Enhanced Prompt</div>
+                    <button id="copy-btn" class="copy-btn">Copy</button>
+                </div>
+                
+                <div id="output-content" class="output-content"></div>
+            </section>
+        </main>
+    </div>
+    
+    <!-- Template Modal -->
+    <div id="template-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div id="modal-title" class="modal-title">Template Title</div>
+                <span id="close-modal" class="close-btn">&times;</span>
+            </div>
+            
+            <div id="template-content" class="template-content"></div>
+            
+            <div class="template-info">
+                <p><small>Tip: Templates will be added at your cursor position. You can add multiple templates to build complex prompts.</small></p>
+            </div>
+            
+            <button id="use-template-btn" class="template-use-btn">Use This Template</button>
+        </div>
+    </div>
+    
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script>
+        // Toggle how-to-use section
+        document.getElementById('how-to-use-header').addEventListener('click', function() {
+            const content = document.getElementById('how-to-use-content');
+            const icon = this.querySelector('.toggle-icon');
+            
+            if (content.style.display === 'none' || content.style.display === '') {
+                content.style.display = 'block';
+                icon.textContent = '▲';
+            } else {
+                content.style.display = 'none';
+                icon.textContent = '▼';
+            }
+        });
+    </script>
+</body>
+</html> 
