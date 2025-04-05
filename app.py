@@ -61,13 +61,22 @@ def initialize_client():
         return None, "API key not configured. Please check your environment variables."
     
     try:
+        # Initialize with minimal configuration
         client = OpenAI(
             api_key=API_KEY,
-            base_url=API_URL,
-            max_retries=3,
-            timeout=30.0
+            base_url=API_URL
         )
-        return client, None
+        # Test the connection
+        try:
+            client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[{"role": "system", "content": "test"}],
+                max_tokens=5
+            )
+            return client, None
+        except Exception as e:
+            logger.error(f"Failed to test OpenAI client connection: {str(e)}")
+            return None, f"Failed to connect to API: {str(e)}"
     except Exception as e:
         error_msg = f"Failed to initialize OpenAI client: {str(e)}"
         logger.error(error_msg)
