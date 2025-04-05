@@ -52,9 +52,11 @@ auth0 = oauth.register(
     server_metadata_url=f'https://{app.config["AUTH0_DOMAIN"]}/.well-known/openid-configuration'
 )
 
-# DeepSeek API constants from environment variables
-API_KEY = os.getenv("DEEPSEEK_API_KEY")
-API_URL = os.getenv("API_URL", "https://api.deepseek.com")  # Base URL as per documentation
+# API Configuration
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_API_URL = "https://api.groq.com/openai/v1"
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+DEEPSEEK_API_URL = os.getenv("API_URL", "https://api.deepseek.com/v1")
 
 class APIError(Exception):
     """Custom exception for API-related errors"""
@@ -75,102 +77,82 @@ def retry_with_backoff(func, max_retries=3, initial_delay=1):
             logger.warning(f"Attempt {attempt + 1} failed, retrying in {delay} seconds: {str(e)}")
             time.sleep(delay)
 
-def check_api_health(client):
-    """Check if the DeepSeek API is responsive and working"""
+def check_api_health(client, is_groq=True):
+    """Check if the API is responsive and working"""
     def health_check():
         try:
-            # Send a minimal request to test the API
+            model = "distil-whisper-large-v3-en" if is_groq else "deepseek-chat"
             response = client.chat.completions.create(
-                model="deepseek-chat",
+                model=model,
                 messages=[
                     {"role": "system", "content": "You are a helpful assistant."},
                     {"role": "user", "content": "Hi"}
                 ],
-                max_tokens=10,  # Minimize tokens for health check
+                max_tokens=10,
                 stream=False
             )
             if not hasattr(response, 'choices') or not response.choices:
                 raise APIError("API response missing choices")
-            logger.info("DeepSeek API health check: SUCCESS")
+            logger.info(f"{'Groq' if is_groq else 'DeepSeek'} API health check: SUCCESS")
             return True, None
-        except (ConnectionError, Timeout) as e:
-            error_msg = f"Connection error during health check: {str(e)}"
-            logger.error(error_msg)
-            raise APIError(error_msg)
-        except RequestException as e:
-            error_msg = f"Request failed during health check: {str(e)}"
-            logger.error(error_msg)
-            if hasattr(e, 'response'):
-                logger.error(f"Response Status: {e.response.status_code}")
-                logger.error(f"Response Body: {e.response.text}")
-            raise APIError(error_msg, getattr(e.response, 'status_code', None), e.response)
         except Exception as e:
-            error_msg = f"Unexpected error during health check: {str(e)}"
+            error_msg = f"{'Groq' if is_groq else 'DeepSeek'} API health check failed: {str(e)}"
             logger.error(error_msg)
-            raise APIError(error_msg)
+            return False, error_msg
+    return health_check()
 
-    try:
-        retry_with_backoff(health_check)
-        return True, None
-    except APIError as e:
-        return False, str(e)
-    except Exception as e:
-        return False, f"Health check failed after retries: {str(e)}"
-
-def initialize_client():
-    """Initialize the OpenAI client with proper error handling"""
-    if not API_KEY:
-        logger.error("DEEPSEEK_API_KEY not found in environment variables")
-        return None, "API key not configured. Please check your environment variables."
+def initialize_groq_client():
+    """Initialize the Groq client with proper error handling"""
+    if not GROQ_API_KEY:
+        logger.error("GROQ_API_KEY not found in environment variables")
+        return None, "Groq API key not configured. Please check your environment variables."
     
-    def create_client():
-        try:
-            # Try creating client with full configuration
-            return OpenAI(
-                api_key=API_KEY,
-                base_url=API_URL,
-                timeout=60.0,
-                max_retries=2
-            )
-        except TypeError:
-            # Fall back to minimal configuration if full config fails
-            logger.warning("Falling back to minimal client configuration")
-            return OpenAI(
-                api_key=API_KEY,
-                base_url=API_URL
-            )
-
     try:
-        # Create client with retry logic
-        client = retry_with_backoff(create_client)
-        
-        # Verify the client works with a health check
-        is_healthy, health_error = check_api_health(client)
-        if not is_healthy:
-            raise APIError(f"Health check failed: {health_error}")
-        
-        logger.info("Client initialized and health check passed")
+        # Create client with Groq configuration
+        client = OpenAI(
+            api_key=GROQ_API_KEY,
+            base_url=GROQ_API_URL,
+            timeout=60.0,
+            max_retries=2
+        )
         return client, None
-        
-    except APIError as e:
-        error_msg = f"API Error during initialization: {str(e)}"
-        logger.error(error_msg)
-        if hasattr(e, 'response'):
-            logger.error(f"Response Status: {e.status_code}")
-            logger.error(f"Response Body: {e.response}")
-        return None, error_msg
     except Exception as e:
-        error_msg = f"Unexpected error during initialization: {str(e)}"
+        error_msg = f"Failed to initialize Groq client: {str(e)}"
         logger.error(error_msg)
         return None, error_msg
 
-# Initialize the client
-client, client_error = initialize_client()
+def initialize_deepseek_client():
+    """Initialize the DeepSeek client as fallback"""
+    if not DEEPSEEK_API_KEY:
+        logger.error("DEEPSEEK_API_KEY not found in environment variables")
+        return None, "DeepSeek API key not configured. Please check your environment variables."
+    
+    try:
+        # Create client with DeepSeek configuration
+        client = OpenAI(
+            api_key=DEEPSEEK_API_KEY,
+            base_url=DEEPSEEK_API_URL,
+            timeout=60.0,
+            max_retries=2
+        )
+        return client, None
+    except Exception as e:
+        error_msg = f"Failed to initialize DeepSeek client: {str(e)}"
+        logger.error(error_msg)
+        return None, error_msg
 
-if client is None:
-    logger.error(f"Failed to initialize client: {client_error}")
+# Initialize both clients
+groq_client, groq_error = initialize_groq_client()
+deepseek_client, deepseek_error = initialize_deepseek_client()
+
+if groq_client is None:
+    logger.error(f"Failed to initialize Groq client: {groq_error}")
+    if deepseek_client is None:
+        logger.error("Both Groq and DeepSeek clients failed to initialize")
+    else:
+        logger.info("Using DeepSeek as fallback")
 else:
-    logger.info("Successfully initialized OpenAI client")
+    logger.info("Successfully initialized Groq client")
 
 # System prompts for different prompt types
 USER_PROMPT_OPTIMIZER = (
@@ -298,19 +280,7 @@ def logout():
 @app.route('/enhance', methods=['POST'])
 @requires_auth
 def enhance_prompt():
-    # Check if client is properly initialized
-    if client is None:
-        error_message = client_error or "API client not properly initialized"
-        logger.error(error_message)
-        return jsonify({"error": error_message}), 503
-    
     try:
-        # Verify API health before processing request
-        is_healthy, health_error = check_api_health(client)
-        if not is_healthy:
-            logger.error(f"API health check failed before processing request: {health_error}")
-            return jsonify({"error": f"API is currently unavailable: {health_error}"}), 503
-            
         data = request.json
         if not data:
             logger.warning("No JSON data received")
@@ -332,56 +302,51 @@ def enhance_prompt():
             {"role": "user", "content": prompt_text}
         ]
         
-        # Log the request
-        logger.info(f"Sending request to DeepSeek API with {prompt_type} prompt")
-        logger.debug(f"Request payload: {json.dumps(messages)}")
-        
-        def make_api_call():
-            return client.chat.completions.create(
-                model="deepseek-chat",
-                messages=messages,
-                stream=False
-            )
-            
-        try:
-            # Call DeepSeek API with retry logic
-            response = retry_with_backoff(make_api_call)
-            
-            # Extract the enhanced prompt from the response
-            if not hasattr(response, 'choices') or not response.choices:
-                logger.error("Invalid API response format")
-                logger.error(f"Full response: {json.dumps(response)}")
-                return jsonify({"error": "Invalid response from API"}), 500
+        def try_api_call(client, is_groq=True):
+            try:
+                model = "distil-whisper-large-v3-en" if is_groq else "deepseek-chat"
+                logger.info(f"Attempting request with {'Groq' if is_groq else 'DeepSeek'} API")
                 
-            enhanced_prompt = response.choices[0].message.content
-            
-            if not enhanced_prompt:
-                logger.warning("Empty response from API")
-                return jsonify({"error": "API returned an empty response"}), 500
-            
-            logger.info("Successfully enhanced prompt")
-            logger.debug(f"Enhanced prompt: {enhanced_prompt}")
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    stream=False
+                )
+                
+                if not hasattr(response, 'choices') or not response.choices:
+                    raise APIError("Invalid API response format")
+                
+                return response.choices[0].message.content
+            except Exception as e:
+                logger.error(f"{'Groq' if is_groq else 'DeepSeek'} API call failed: {str(e)}")
+                raise
+
+        # Try Groq first, fall back to DeepSeek if needed
+        try:
+            if groq_client is not None:
+                enhanced_prompt = try_api_call(groq_client, True)
+                logger.info("Successfully enhanced prompt using Groq API")
+            elif deepseek_client is not None:
+                enhanced_prompt = try_api_call(deepseek_client, False)
+                logger.info("Successfully enhanced prompt using DeepSeek API (fallback)")
+            else:
+                return jsonify({"error": "No available API clients"}), 503
             
             return jsonify({"enhanced_prompt": enhanced_prompt})
             
-        except (ConnectionError, Timeout) as e:
-            logger.error(f"Connection error: {str(e)}")
-            return jsonify({"error": "Failed to connect to the API. Please try again."}), 503
-        except RequestException as e:
-            logger.error(f"Request failed: {str(e)}")
-            if hasattr(e, 'response'):
-                logger.error(f"Response Status: {e.response.status_code}")
-                logger.error(f"Response Body: {e.response.text}")
-            
-            status_code = getattr(e.response, 'status_code', 500)
-            if status_code == 401:
-                return jsonify({"error": "Authentication failed. Please check your API key."}), 401
-            elif status_code == 404:
-                return jsonify({"error": "API endpoint not found. Please check the API URL."}), 404
-            elif status_code == 429:
-                return jsonify({"error": "Too many requests. Please try again later."}), 429
+        except Exception as e:
+            # If Groq fails and DeepSeek is available, try DeepSeek
+            if groq_client is not None and deepseek_client is not None:
+                try:
+                    enhanced_prompt = try_api_call(deepseek_client, False)
+                    logger.info("Successfully enhanced prompt using DeepSeek API (fallback)")
+                    return jsonify({"enhanced_prompt": enhanced_prompt})
+                except Exception as fallback_e:
+                    logger.error(f"Both APIs failed. Groq error: {str(e)}, DeepSeek error: {str(fallback_e)}")
+                    return jsonify({"error": "All API attempts failed"}), 503
             else:
-                return jsonify({"error": f"API request failed: {str(e)}"}), status_code
+                logger.error(f"API call failed and no fallback available: {str(e)}")
+                return jsonify({"error": "API request failed"}), 503
                 
     except Exception as e:
         logger.exception("Unexpected error in enhance_prompt")
