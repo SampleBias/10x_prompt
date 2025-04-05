@@ -52,7 +52,7 @@ auth0 = oauth.register(
 
 # DeepSeek API constants from environment variables
 API_KEY = os.getenv("DEEPSEEK_API_KEY")
-API_URL = os.getenv("API_URL", "https://api.deepseek.ai/v1")  # Corrected base URL
+API_URL = os.getenv("API_URL", "https://api.deepseek.com")  # Base URL as per documentation
 
 def initialize_client():
     """Initialize the OpenAI client with proper error handling"""
@@ -240,10 +240,8 @@ def enhance_prompt():
         try:
             # Call DeepSeek API using OpenAI SDK
             response = client.chat.completions.create(
-                model="deepseek-coder-33b-instruct",  # Updated model name
+                model="deepseek-chat",  # This will use DeepSeek-V3 as per documentation
                 messages=messages,
-                temperature=0.7,
-                max_tokens=2048,
                 stream=False
             )
             
