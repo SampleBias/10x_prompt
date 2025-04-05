@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, redirect, url_for, session
+from flask import Flask, render_template, request, jsonify, redirect, url_for, session, make_response
 from urllib.parse import urlencode
 import os
 import requests
@@ -26,7 +26,7 @@ app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PREFERRED_URL_SCHEME'] = 'https'
 app.config['SESSION_COOKIE_NAME'] = '10x_prompt_session'
-app.config['SESSION_COOKIE_DOMAIN'] = os.getenv('SESSION_COOKIE_DOMAIN', None)
+app.config['SESSION_COOKIE_DOMAIN'] = None  # Let Flask set this automatically
 app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1 hour
 
 # Auth0 configuration
@@ -108,15 +108,33 @@ SYSTEM_PROMPT_OPTIMIZER = (
 def requires_auth(f):
     @wraps(f)
     def decorated(*args, **kwargs):
+        logger.info(f"Checking auth for path: {request.path}")
+        logger.info(f"Current session data: {dict(session)}")
+        
         if 'profile' not in session:
+            logger.warning("No profile in session, redirecting to login")
             return redirect(url_for('login'))
+            
+        # Verify session data is valid
+        profile = session.get('profile', {})
+        if not profile.get('user_id'):
+            logger.warning("Invalid profile data in session, redirecting to login")
+            session.clear()
+            return redirect(url_for('login'))
+            
+        logger.info(f"Auth successful for user: {profile.get('name', 'Unknown')}")
         return f(*args, **kwargs)
     return decorated
 
 @app.route('/')
 @requires_auth
 def index():
-    return render_template('index.html')
+    response = make_response(render_template('index.html'))
+    # Ensure proper cache headers
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
 
 @app.route('/login')
 def login():
@@ -125,11 +143,19 @@ def login():
 @app.route('/callback')
 def callback_handling():
     try:
+        # Get the authorization code
         token = auth0.authorize_access_token()
+        logger.info("Received access token from Auth0")
+        
+        # Get the user info
         resp = auth0.get('userinfo')
         userinfo = resp.json()
+        logger.info(f"Received user info from Auth0: {userinfo.get('name', 'Unknown')}")
         
-        # Make session permanent
+        # Clear any existing session
+        session.clear()
+        
+        # Make session permanent and set cookie options
         session.permanent = True
         
         # Store user info in session
@@ -140,18 +166,32 @@ def callback_handling():
             'picture': userinfo.get('picture', '')
         }
         
-        logger.info(f"Successfully authenticated user: {userinfo.get('name', 'Unknown')}")
+        # Add a session test value
+        session['test'] = 'test_value'
+        
+        logger.info("Session data set successfully")
+        logger.info(f"Current session: {dict(session)}")
+        
         return redirect(url_for('index'))
     except Exception as e:
         logger.error(f"Error in callback: {str(e)}")
+        logger.error(f"Full error details: {e.__class__.__name__}: {str(e)}")
         return redirect(url_for('login'))
 
 @app.before_request
 def before_request():
+    logger.info(f"Request path: {request.path}")
+    logger.info(f"Session contents: {session}")
     if 'profile' in session:
-        logger.debug(f"User authenticated: {session['profile'].get('name', 'Unknown')}")
+        logger.info(f"User authenticated: {session['profile'].get('name', 'Unknown')}")
     else:
-        logger.debug("No user profile in session")
+        logger.info("No user profile in session")
+
+@app.after_request
+def after_request(response):
+    logger.info(f"Response status: {response.status_code}")
+    logger.info(f"Response headers: {response.headers}")
+    return response
 
 @app.route('/logout')
 def logout():
