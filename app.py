@@ -49,19 +49,31 @@ auth0 = oauth.register(
 API_KEY = os.getenv("DEEPSEEK_API_KEY")
 API_URL = os.getenv("API_URL", "https://api.deepseek.com/v1")
 
-if not API_KEY:
-    logger.error("API key not found in environment variables")
-    raise ValueError("API_KEY environment variable is not set. Please check your .env file.")
+def initialize_client():
+    """Initialize the OpenAI client with proper error handling"""
+    if not API_KEY:
+        logger.error("DEEPSEEK_API_KEY not found in environment variables")
+        return None, "API key not configured. Please check your environment variables."
+    
+    if not API_URL:
+        logger.error("API_URL not found in environment variables")
+        return None, "API URL not configured. Please check your environment variables."
+    
+    try:
+        client = OpenAI(
+            api_key=API_KEY,
+            base_url=API_URL
+        )
+        # Test the client with a simple request
+        client.models.list()
+        return client, None
+    except Exception as e:
+        error_msg = f"Failed to initialize OpenAI client: {str(e)}"
+        logger.error(error_msg)
+        return None, error_msg
 
-try:
-    # Initialize OpenAI client with DeepSeek API URL
-    client = OpenAI(
-        api_key=API_KEY,
-        base_url=API_URL
-    )
-except Exception as e:
-    logger.error(f"Failed to initialize OpenAI client: {str(e)}")
-    client = None
+# Initialize the client
+client, client_error = initialize_client()
 
 # System prompts for different prompt types
 USER_PROMPT_OPTIMIZER = (
@@ -135,6 +147,12 @@ def logout():
 @app.route('/enhance', methods=['POST'])
 @requires_auth
 def enhance_prompt():
+    # Check if client is properly initialized
+    if client is None:
+        error_message = client_error or "API client not properly initialized"
+        logger.error(error_message)
+        return jsonify({"error": error_message}), 503
+    
     data = request.json
     prompt_text = data.get('prompt', '')
     prompt_type = data.get('type', 'user')
