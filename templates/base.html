@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}10x Prompt{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        .support-link {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background-color: #f3f4f6;
+            padding: 8px 16px;
+            border-radius: 20px;
+            text-decoration: none;
+            color: #4b5563;
+            font-size: 14px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .support-link:hover {
+            background-color: #e5e7eb;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-gray-50">
+    {% block content %}{% endblock %}
+    <a href="mailto:10x-Prompt@pm.me" class="support-link">Need Support? Contact Us</a>
+</body>
+</html> 

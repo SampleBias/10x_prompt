@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block title %}Sign In - 10x Prompt{% endblock %}
+
+{% block content %}
+<div class="min-h-screen flex items-center justify-center">
+    <div class="text-center">
+        <h1 class="text-4xl font-bold text-gray-900 mb-8">10x Prompt</h1>
+        <a href="{{ url_for('login') }}" 
+           class="inline-block bg-blue-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors">
+            Sign in with Auth0
+        </a>
+    </div>
+</div>
+{% endblock %} 

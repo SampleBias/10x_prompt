@@ -1,10 +1,13 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, redirect, url_for, session
+from urllib.parse import urlencode
 import os
 import requests
 import json
 import logging
 from dotenv import load_dotenv
 from openai import OpenAI
+from authlib.integrations.flask_client import OAuth
+from functools import wraps
 
 # Configure logging
 logging.basicConfig(level=logging.INFO,
@@ -17,6 +20,25 @@ load_dotenv()
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.urandom(24)
 
+# Auth0 configuration
+app.config['AUTH0_CLIENT_ID'] = os.getenv('AUTH0_CLIENT_ID')
+app.config['AUTH0_CLIENT_SECRET'] = os.getenv('AUTH0_CLIENT_SECRET')
+app.config['AUTH0_DOMAIN'] = os.getenv('AUTH0_DOMAIN')
+app.config['AUTH0_CALLBACK_URL'] = os.getenv('AUTH0_CALLBACK_URL', 'http://localhost:5000/callback')
+
+oauth = OAuth(app)
+auth0 = oauth.register(
+    'auth0',
+    client_id=app.config['AUTH0_CLIENT_ID'],
+    client_secret=app.config['AUTH0_CLIENT_SECRET'],
+    api_base_url=f'https://{app.config["AUTH0_DOMAIN"]}',
+    authorize_url=f'https://{app.config["AUTH0_DOMAIN"]}/authorize',
+    access_token_url=f'https://{app.config["AUTH0_DOMAIN"]}/oauth/token',
+    client_kwargs={
+        'scope': 'openid profile email',
+    },
+)
+
 # DeepSeek API constants from environment variables
 API_KEY = os.getenv("DEEPSEEK_API_KEY")
 API_URL = os.getenv("API_URL", "https://api.deepseek.com/v1")
@@ -25,8 +47,15 @@ if not API_KEY:
     logger.error("API key not found in environment variables")
     raise ValueError("API_KEY environment variable is not set. Please check your .env file.")
 
-# Initialize OpenAI client with DeepSeek API URL
-client = OpenAI(api_key=API_KEY, base_url=API_URL)
+try:
+    # Initialize OpenAI client with DeepSeek API URL
+    client = OpenAI(
+        api_key=API_KEY,
+        base_url=API_URL
+    )
+except Exception as e:
+    logger.error(f"Failed to initialize OpenAI client: {str(e)}")
+    client = None
 
 # System prompts for different prompt types
 USER_PROMPT_OPTIMIZER = (
@@ -54,11 +83,47 @@ SYSTEM_PROMPT_OPTIMIZER = (
     'Your response should be ready to copy and paste as a system prompt.'
 )
 
+def requires_auth(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if 'profile' not in session:
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated
+
 @app.route('/')
+@requires_auth
 def index():
     return render_template('index.html')
 
+@app.route('/login')
+def login():
+    return auth0.authorize_redirect(redirect_uri=app.config['AUTH0_CALLBACK_URL'])
+
+@app.route('/callback')
+def callback_handling():
+    auth0.authorize_access_token()
+    resp = auth0.get('userinfo')
+    userinfo = resp.json()
+    session['jwt_payload'] = userinfo
+    session['profile'] = {
+        'user_id': userinfo['sub'],
+        'name': userinfo.get('name', ''),
+        'picture': userinfo.get('picture', '')
+    }
+    return redirect(url_for('index'))
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    params = {
+        'returnTo': url_for('login', _external=True),
+        'client_id': app.config['AUTH0_CLIENT_ID']
+    }
+    return redirect(auth0.api_base_url + '/v2/logout?' + urlencode(params))
+
 @app.route('/enhance', methods=['POST'])
+@requires_auth
 def enhance_prompt():
     data = request.json
     prompt_text = data.get('prompt', '')
