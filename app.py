@@ -54,6 +54,35 @@ auth0 = oauth.register(
 API_KEY = os.getenv("DEEPSEEK_API_KEY")
 API_URL = os.getenv("API_URL", "https://api.deepseek.com")  # Base URL as per documentation
 
+def check_api_health(client):
+    """Check if the DeepSeek API is responsive and working"""
+    try:
+        # Send a minimal request to test the API
+        response = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": "Hi"}
+            ],
+            max_tokens=10,  # Minimize tokens for health check
+            stream=False
+        )
+        if hasattr(response, 'choices') and response.choices:
+            logger.info("DeepSeek API health check: SUCCESS")
+            return True, None
+        else:
+            error_msg = "API response missing choices"
+            logger.error(f"DeepSeek API health check failed: {error_msg}")
+            return False, error_msg
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"DeepSeek API health check failed: {error_msg}")
+        # Log additional error details if available
+        if hasattr(e, 'response'):
+            logger.error(f"API Response Status: {e.response.status_code}")
+            logger.error(f"API Response Body: {e.response.text}")
+        return False, error_msg
+
 def initialize_client():
     """Initialize the OpenAI client with proper error handling"""
     if not API_KEY:
@@ -62,10 +91,17 @@ def initialize_client():
     
     try:
         # Create client with basic configuration
-        return OpenAI(
+        client = OpenAI(
             api_key=API_KEY,
             base_url=API_URL
-        ), None
+        )
+        
+        # Perform health check
+        is_healthy, health_error = check_api_health(client)
+        if not is_healthy:
+            return None, f"API health check failed: {health_error}"
+        
+        return client, None
     except Exception as e:
         error_msg = f"Failed to initialize OpenAI client: {str(e)}"
         logger.error(error_msg)
@@ -212,6 +248,12 @@ def enhance_prompt():
         return jsonify({"error": error_message}), 503
     
     try:
+        # Verify API health before processing request
+        is_healthy, health_error = check_api_health(client)
+        if not is_healthy:
+            logger.error(f"API health check failed before processing request: {health_error}")
+            return jsonify({"error": f"API is currently unavailable: {health_error}"}), 503
+            
         data = request.json
         if not data:
             logger.warning("No JSON data received")
@@ -248,6 +290,7 @@ def enhance_prompt():
             # Extract the enhanced prompt from the response
             if not hasattr(response, 'choices') or not response.choices:
                 logger.error("Invalid API response format")
+                logger.error(f"Full response: {json.dumps(response)}")
                 return jsonify({"error": "Invalid response from API"}), 500
                 
             enhanced_prompt = response.choices[0].message.content
@@ -264,6 +307,11 @@ def enhance_prompt():
         except Exception as api_error:
             logger.error(f"API call failed: {str(api_error)}")
             error_message = str(api_error)
+            
+            # Enhanced error logging
+            if hasattr(api_error, 'response'):
+                logger.error(f"API Response Status: {api_error.response.status_code}")
+                logger.error(f"API Response Body: {api_error.response.text}")
             
             if "401" in error_message:
                 return jsonify({"error": "Authentication failed. Please check your API key."}), 401
