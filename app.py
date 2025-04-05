@@ -18,7 +18,11 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.urandom(24)
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', os.urandom(24))
+app.config['SESSION_COOKIE_SECURE'] = True
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PREFERRED_URL_SCHEME'] = 'https'
 
 # Auth0 configuration
 app.config['AUTH0_CLIENT_ID'] = os.getenv('AUTH0_CLIENT_ID')
@@ -32,11 +36,13 @@ auth0 = oauth.register(
     client_id=app.config['AUTH0_CLIENT_ID'],
     client_secret=app.config['AUTH0_CLIENT_SECRET'],
     api_base_url=f'https://{app.config["AUTH0_DOMAIN"]}',
-    authorize_url=f'https://{app.config["AUTH0_DOMAIN"]}/authorize',
     access_token_url=f'https://{app.config["AUTH0_DOMAIN"]}/oauth/token',
+    authorize_url=f'https://{app.config["AUTH0_DOMAIN"]}/authorize',
     client_kwargs={
         'scope': 'openid profile email',
+        'response_type': 'code'
     },
+    server_metadata_url=f'https://{app.config["AUTH0_DOMAIN"]}/.well-known/openid-configuration'
 )
 
 # DeepSeek API constants from environment variables
@@ -102,16 +108,20 @@ def login():
 
 @app.route('/callback')
 def callback_handling():
-    auth0.authorize_access_token()
-    resp = auth0.get('userinfo')
-    userinfo = resp.json()
-    session['jwt_payload'] = userinfo
-    session['profile'] = {
-        'user_id': userinfo['sub'],
-        'name': userinfo.get('name', ''),
-        'picture': userinfo.get('picture', '')
-    }
-    return redirect(url_for('index'))
+    try:
+        token = auth0.authorize_access_token()
+        resp = auth0.get('userinfo')
+        userinfo = resp.json()
+        session['jwt_payload'] = userinfo
+        session['profile'] = {
+            'user_id': userinfo['sub'],
+            'name': userinfo.get('name', ''),
+            'picture': userinfo.get('picture', '')
+        }
+        return redirect(url_for('index'))
+    except Exception as e:
+        logger.error(f"Error in callback: {str(e)}")
+        return redirect(url_for('login'))
 
 @app.route('/logout')
 def logout():
