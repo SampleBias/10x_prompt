@@ -93,7 +93,9 @@ def initialize_client():
         # Create client with basic configuration
         client = OpenAI(
             api_key=API_KEY,
-            base_url=API_URL
+            base_url=API_URL,
+            timeout=60.0,  # Set a reasonable timeout
+            max_retries=2  # Set max retries for transient failures
         )
         
         # Perform health check
@@ -102,6 +104,21 @@ def initialize_client():
             return None, f"API health check failed: {health_error}"
         
         return client, None
+    except TypeError as type_error:
+        # Handle specific initialization errors
+        error_msg = f"Invalid client configuration: {str(type_error)}"
+        logger.error(error_msg)
+        # Try fallback initialization if there's a type error
+        try:
+            client = OpenAI(
+                api_key=API_KEY,
+                base_url=API_URL
+            )
+            return client, None
+        except Exception as fallback_error:
+            error_msg = f"Fallback initialization failed: {str(fallback_error)}"
+            logger.error(error_msg)
+            return None, error_msg
     except Exception as e:
         error_msg = f"Failed to initialize OpenAI client: {str(e)}"
         logger.error(error_msg)
