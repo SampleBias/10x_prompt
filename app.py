@@ -19,16 +19,21 @@ load_dotenv()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', os.urandom(24))
+
+# Session configuration
 app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PREFERRED_URL_SCHEME'] = 'https'
+app.config['SESSION_COOKIE_NAME'] = '10x_prompt_session'
+app.config['SESSION_COOKIE_DOMAIN'] = os.getenv('SESSION_COOKIE_DOMAIN', None)
+app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1 hour
 
 # Auth0 configuration
 app.config['AUTH0_CLIENT_ID'] = os.getenv('AUTH0_CLIENT_ID')
 app.config['AUTH0_CLIENT_SECRET'] = os.getenv('AUTH0_CLIENT_SECRET')
 app.config['AUTH0_DOMAIN'] = os.getenv('AUTH0_DOMAIN')
-app.config['AUTH0_CALLBACK_URL'] = os.getenv('AUTH0_CALLBACK_URL', 'http://localhost:5000/callback')
+app.config['AUTH0_CALLBACK_URL'] = os.getenv('AUTH0_CALLBACK_URL', 'https://tenx-prompt-25322b7d0675.herokuapp.com/callback')
 
 oauth = OAuth(app)
 auth0 = oauth.register(
@@ -55,17 +60,13 @@ def initialize_client():
         logger.error("DEEPSEEK_API_KEY not found in environment variables")
         return None, "API key not configured. Please check your environment variables."
     
-    if not API_URL:
-        logger.error("API_URL not found in environment variables")
-        return None, "API URL not configured. Please check your environment variables."
-    
     try:
         client = OpenAI(
             api_key=API_KEY,
-            base_url=API_URL
+            base_url=API_URL,
+            max_retries=3,
+            timeout=30.0
         )
-        # Test the client with a simple request
-        client.models.list()
         return client, None
     except Exception as e:
         error_msg = f"Failed to initialize OpenAI client: {str(e)}"
@@ -124,16 +125,30 @@ def callback_handling():
         token = auth0.authorize_access_token()
         resp = auth0.get('userinfo')
         userinfo = resp.json()
+        
+        # Make session permanent
+        session.permanent = True
+        
+        # Store user info in session
         session['jwt_payload'] = userinfo
         session['profile'] = {
             'user_id': userinfo['sub'],
             'name': userinfo.get('name', ''),
             'picture': userinfo.get('picture', '')
         }
+        
+        logger.info(f"Successfully authenticated user: {userinfo.get('name', 'Unknown')}")
         return redirect(url_for('index'))
     except Exception as e:
         logger.error(f"Error in callback: {str(e)}")
         return redirect(url_for('login'))
+
+@app.before_request
+def before_request():
+    if 'profile' in session:
+        logger.debug(f"User authenticated: {session['profile'].get('name', 'Unknown')}")
+    else:
+        logger.debug("No user profile in session")
 
 @app.route('/logout')
 def logout():
