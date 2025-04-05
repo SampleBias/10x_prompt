@@ -52,7 +52,7 @@ auth0 = oauth.register(
 
 # DeepSeek API constants from environment variables
 API_KEY = os.getenv("DEEPSEEK_API_KEY")
-API_URL = os.getenv("API_URL", "https://api.deepseek.com/v1")
+API_URL = os.getenv("API_URL", "https://api.deepseek.com")  # Updated base URL
 
 def initialize_client():
     """Initialize the OpenAI client with proper error handling"""
@@ -61,20 +61,11 @@ def initialize_client():
         return None, "API key not configured. Please check your environment variables."
     
     try:
-        # Initialize with minimal configuration
-        client = OpenAI(
+        # Create client with basic configuration
+        return OpenAI(
             api_key=API_KEY,
             base_url=API_URL
-        )
-        
-        # Simple models list request to test connection
-        try:
-            # Just initialize the client without testing
-            logger.info("Successfully initialized OpenAI client")
-            return client, None
-        except Exception as e:
-            logger.error(f"Failed to test OpenAI client connection: {str(e)}")
-            return None, f"Failed to connect to API: {str(e)}"
+        ), None
     except Exception as e:
         error_msg = f"Failed to initialize OpenAI client: {str(e)}"
         logger.error(error_msg)
@@ -82,6 +73,11 @@ def initialize_client():
 
 # Initialize the client
 client, client_error = initialize_client()
+
+if client is None:
+    logger.error(f"Failed to initialize client: {client_error}")
+else:
+    logger.info("Successfully initialized OpenAI client")
 
 # System prompts for different prompt types
 USER_PROMPT_OPTIMIZER = (
@@ -175,20 +171,21 @@ def enhance_prompt():
         logger.error(error_message)
         return jsonify({"error": error_message}), 503
     
-    data = request.json
-    prompt_text = data.get('prompt', '')
-    prompt_type = data.get('type', 'user')
-    
-    if not prompt_text:
-        logger.warning("Empty prompt received")
-        return jsonify({"error": "No prompt provided"}), 400
-    
     try:
+        data = request.json
+        if not data:
+            logger.warning("No JSON data received")
+            return jsonify({"error": "No data provided"}), 400
+
+        prompt_text = data.get('prompt', '')
+        prompt_type = data.get('type', 'user')
+        
+        if not prompt_text:
+            logger.warning("Empty prompt received")
+            return jsonify({"error": "No prompt provided"}), 400
+        
         # Select the appropriate system message based on prompt type
-        if prompt_type == 'system':
-            system_message = SYSTEM_PROMPT_OPTIMIZER
-        else:  # Default to user prompt optimizer
-            system_message = USER_PROMPT_OPTIMIZER
+        system_message = SYSTEM_PROMPT_OPTIMIZER if prompt_type == 'system' else USER_PROMPT_OPTIMIZER
         
         # Prepare the messages for the API
         messages = [
@@ -197,54 +194,49 @@ def enhance_prompt():
         ]
         
         # Log the request
-        logger.info(f"Sending request to DeepSeek API with {prompt_type} prompt of length {len(prompt_text)}")
+        logger.info(f"Sending request to DeepSeek API with {prompt_type} prompt")
+        logger.debug(f"Request payload: {json.dumps(messages)}")
         
-        # Call DeepSeek API using OpenAI SDK with better parameters
-        response = client.chat.completions.create(
-            model="deepseek-chat",
-            messages=messages,
-            temperature=0.7,
-            max_tokens=4000,  # Increased max tokens
-            stream=False,
-            timeout=30  # Added timeout
-        )
-        
-        # Log the raw response for debugging
-        logger.debug(f"Raw API response: {response}")
-        
-        # Extract the enhanced prompt from the response
-        if not response.choices or len(response.choices) == 0:
-            logger.error("API response contains no choices")
-            return jsonify({"error": "Invalid API response format"}), 500
+        try:
+            # Call DeepSeek API using OpenAI SDK
+            response = client.chat.completions.create(
+                model="deepseek-chat",  # This will use DeepSeek-V3
+                messages=messages,
+                stream=False
+            )
             
-        enhanced_prompt = response.choices[0].message.content
-        
-        if not enhanced_prompt:
-            logger.warning("Empty response from API")
-            return jsonify({"error": "API returned an empty response"}), 500
-        
-        logger.info(f"Successfully enhanced {prompt_type} prompt, new length: {len(enhanced_prompt)}")
-        return jsonify({"enhanced_prompt": enhanced_prompt})
-    
+            # Extract the enhanced prompt from the response
+            if not hasattr(response, 'choices') or not response.choices:
+                logger.error("Invalid API response format")
+                return jsonify({"error": "Invalid response from API"}), 500
+                
+            enhanced_prompt = response.choices[0].message.content
+            
+            if not enhanced_prompt:
+                logger.warning("Empty response from API")
+                return jsonify({"error": "API returned an empty response"}), 500
+            
+            logger.info("Successfully enhanced prompt")
+            logger.debug(f"Enhanced prompt: {enhanced_prompt}")
+            
+            return jsonify({"enhanced_prompt": enhanced_prompt})
+            
+        except Exception as api_error:
+            logger.error(f"API call failed: {str(api_error)}")
+            error_message = str(api_error)
+            
+            if "401" in error_message:
+                return jsonify({"error": "Authentication failed. Please check your API key."}), 401
+            elif "404" in error_message:
+                return jsonify({"error": "API endpoint not found. Please check the API URL."}), 404
+            elif "429" in error_message:
+                return jsonify({"error": "Too many requests. Please try again later."}), 429
+            else:
+                return jsonify({"error": f"API error: {error_message}"}), 500
+                
     except Exception as e:
-        # Handle all exceptions
-        error_type = type(e).__name__
-        error_message = str(e)
-        logger.exception(f"Error {error_type}: {error_message}")
-        
-        # Provide user-friendly error message
-        if "401" in error_message:
-            return jsonify({"error": "Authentication error. Please check your API key."}), 401
-        elif "404" in error_message:
-            return jsonify({"error": "API endpoint not found. Please check your API URL."}), 404
-        elif "429" in error_message:
-            return jsonify({"error": "Rate limit exceeded. Please try again later."}), 429
-        elif "timeout" in error_message.lower() or "timed out" in error_message.lower():
-            return jsonify({"error": "Request timed out. Please try again later."}), 504
-        elif "connection" in error_message.lower():
-            return jsonify({"error": "Connection error. Please check your internet connection."}), 503
-        else:
-            return jsonify({"error": f"An error occurred: {error_message}"}), 500
+        logger.exception("Unexpected error in enhance_prompt")
+        return jsonify({"error": "An unexpected error occurred"}), 500
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
