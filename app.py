@@ -8,6 +8,8 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from authlib.integrations.flask_client import OAuth
 from functools import wraps
+import time
+from requests.exceptions import RequestException, Timeout, ConnectionError
 
 # Configure logging
 logging.basicConfig(level=logging.INFO,
@@ -54,34 +56,66 @@ auth0 = oauth.register(
 API_KEY = os.getenv("DEEPSEEK_API_KEY")
 API_URL = os.getenv("API_URL", "https://api.deepseek.com")  # Base URL as per documentation
 
+class APIError(Exception):
+    """Custom exception for API-related errors"""
+    def __init__(self, message, status_code=None, response=None):
+        super().__init__(message)
+        self.status_code = status_code
+        self.response = response
+
+def retry_with_backoff(func, max_retries=3, initial_delay=1):
+    """Retry a function with exponential backoff"""
+    for attempt in range(max_retries):
+        try:
+            return func()
+        except Exception as e:
+            if attempt == max_retries - 1:  # Last attempt
+                raise  # Re-raise the last exception
+            delay = initial_delay * (2 ** attempt)  # Exponential backoff
+            logger.warning(f"Attempt {attempt + 1} failed, retrying in {delay} seconds: {str(e)}")
+            time.sleep(delay)
+
 def check_api_health(client):
     """Check if the DeepSeek API is responsive and working"""
-    try:
-        # Send a minimal request to test the API
-        response = client.chat.completions.create(
-            model="deepseek-chat",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": "Hi"}
-            ],
-            max_tokens=10,  # Minimize tokens for health check
-            stream=False
-        )
-        if hasattr(response, 'choices') and response.choices:
+    def health_check():
+        try:
+            # Send a minimal request to test the API
+            response = client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": "Hi"}
+                ],
+                max_tokens=10,  # Minimize tokens for health check
+                stream=False
+            )
+            if not hasattr(response, 'choices') or not response.choices:
+                raise APIError("API response missing choices")
             logger.info("DeepSeek API health check: SUCCESS")
             return True, None
-        else:
-            error_msg = "API response missing choices"
-            logger.error(f"DeepSeek API health check failed: {error_msg}")
-            return False, error_msg
+        except (ConnectionError, Timeout) as e:
+            error_msg = f"Connection error during health check: {str(e)}"
+            logger.error(error_msg)
+            raise APIError(error_msg)
+        except RequestException as e:
+            error_msg = f"Request failed during health check: {str(e)}"
+            logger.error(error_msg)
+            if hasattr(e, 'response'):
+                logger.error(f"Response Status: {e.response.status_code}")
+                logger.error(f"Response Body: {e.response.text}")
+            raise APIError(error_msg, getattr(e.response, 'status_code', None), e.response)
+        except Exception as e:
+            error_msg = f"Unexpected error during health check: {str(e)}"
+            logger.error(error_msg)
+            raise APIError(error_msg)
+
+    try:
+        retry_with_backoff(health_check)
+        return True, None
+    except APIError as e:
+        return False, str(e)
     except Exception as e:
-        error_msg = str(e)
-        logger.error(f"DeepSeek API health check failed: {error_msg}")
-        # Log additional error details if available
-        if hasattr(e, 'response'):
-            logger.error(f"API Response Status: {e.response.status_code}")
-            logger.error(f"API Response Body: {e.response.text}")
-        return False, error_msg
+        return False, f"Health check failed after retries: {str(e)}"
 
 def initialize_client():
     """Initialize the OpenAI client with proper error handling"""
@@ -89,38 +123,44 @@ def initialize_client():
         logger.error("DEEPSEEK_API_KEY not found in environment variables")
         return None, "API key not configured. Please check your environment variables."
     
-    try:
-        # Create client with basic configuration
-        client = OpenAI(
-            api_key=API_KEY,
-            base_url=API_URL,
-            timeout=60.0,  # Set a reasonable timeout
-            max_retries=2  # Set max retries for transient failures
-        )
-        
-        # Perform health check
-        is_healthy, health_error = check_api_health(client)
-        if not is_healthy:
-            return None, f"API health check failed: {health_error}"
-        
-        return client, None
-    except TypeError as type_error:
-        # Handle specific initialization errors
-        error_msg = f"Invalid client configuration: {str(type_error)}"
-        logger.error(error_msg)
-        # Try fallback initialization if there's a type error
+    def create_client():
         try:
-            client = OpenAI(
+            # Try creating client with full configuration
+            return OpenAI(
+                api_key=API_KEY,
+                base_url=API_URL,
+                timeout=60.0,
+                max_retries=2
+            )
+        except TypeError:
+            # Fall back to minimal configuration if full config fails
+            logger.warning("Falling back to minimal client configuration")
+            return OpenAI(
                 api_key=API_KEY,
                 base_url=API_URL
             )
-            return client, None
-        except Exception as fallback_error:
-            error_msg = f"Fallback initialization failed: {str(fallback_error)}"
-            logger.error(error_msg)
-            return None, error_msg
+
+    try:
+        # Create client with retry logic
+        client = retry_with_backoff(create_client)
+        
+        # Verify the client works with a health check
+        is_healthy, health_error = check_api_health(client)
+        if not is_healthy:
+            raise APIError(f"Health check failed: {health_error}")
+        
+        logger.info("Client initialized and health check passed")
+        return client, None
+        
+    except APIError as e:
+        error_msg = f"API Error during initialization: {str(e)}"
+        logger.error(error_msg)
+        if hasattr(e, 'response'):
+            logger.error(f"Response Status: {e.status_code}")
+            logger.error(f"Response Body: {e.response}")
+        return None, error_msg
     except Exception as e:
-        error_msg = f"Failed to initialize OpenAI client: {str(e)}"
+        error_msg = f"Unexpected error during initialization: {str(e)}"
         logger.error(error_msg)
         return None, error_msg
 
@@ -296,13 +336,16 @@ def enhance_prompt():
         logger.info(f"Sending request to DeepSeek API with {prompt_type} prompt")
         logger.debug(f"Request payload: {json.dumps(messages)}")
         
-        try:
-            # Call DeepSeek API using OpenAI SDK
-            response = client.chat.completions.create(
-                model="deepseek-chat",  # This will use DeepSeek-V3 as per documentation
+        def make_api_call():
+            return client.chat.completions.create(
+                model="deepseek-chat",
                 messages=messages,
                 stream=False
             )
+            
+        try:
+            # Call DeepSeek API with retry logic
+            response = retry_with_backoff(make_api_call)
             
             # Extract the enhanced prompt from the response
             if not hasattr(response, 'choices') or not response.choices:
@@ -321,23 +364,24 @@ def enhance_prompt():
             
             return jsonify({"enhanced_prompt": enhanced_prompt})
             
-        except Exception as api_error:
-            logger.error(f"API call failed: {str(api_error)}")
-            error_message = str(api_error)
+        except (ConnectionError, Timeout) as e:
+            logger.error(f"Connection error: {str(e)}")
+            return jsonify({"error": "Failed to connect to the API. Please try again."}), 503
+        except RequestException as e:
+            logger.error(f"Request failed: {str(e)}")
+            if hasattr(e, 'response'):
+                logger.error(f"Response Status: {e.response.status_code}")
+                logger.error(f"Response Body: {e.response.text}")
             
-            # Enhanced error logging
-            if hasattr(api_error, 'response'):
-                logger.error(f"API Response Status: {api_error.response.status_code}")
-                logger.error(f"API Response Body: {api_error.response.text}")
-            
-            if "401" in error_message:
+            status_code = getattr(e.response, 'status_code', 500)
+            if status_code == 401:
                 return jsonify({"error": "Authentication failed. Please check your API key."}), 401
-            elif "404" in error_message:
+            elif status_code == 404:
                 return jsonify({"error": "API endpoint not found. Please check the API URL."}), 404
-            elif "429" in error_message:
+            elif status_code == 429:
                 return jsonify({"error": "Too many requests. Please try again later."}), 429
             else:
-                return jsonify({"error": f"API error: {error_message}"}), 500
+                return jsonify({"error": f"API request failed: {str(e)}"}), status_code
                 
     except Exception as e:
         logger.exception("Unexpected error in enhance_prompt")
