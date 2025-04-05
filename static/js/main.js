@@ -311,12 +311,18 @@ document.addEventListener('DOMContentLoaded', function() {
             headers: {
                 'Content-Type': 'application/json'
             },
+            credentials: 'same-origin',  // Include credentials
             body: JSON.stringify({
                 prompt: promptText,
                 type: currentPromptType
             })
         })
         .then(response => {
+            if (response.redirected) {
+                // If we got redirected to login, reload the page
+                window.location.href = response.url;
+                return;
+            }
             if (!response.ok) {
                 return response.json().then(errorData => {
                     throw new Error(errorData.error || `Server error: ${response.status}`);
