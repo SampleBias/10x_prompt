@@ -66,13 +66,11 @@ def initialize_client():
             api_key=API_KEY,
             base_url=API_URL
         )
-        # Test the connection
+        
+        # Simple models list request to test connection
         try:
-            client.chat.completions.create(
-                model="deepseek-chat",
-                messages=[{"role": "system", "content": "test"}],
-                max_tokens=5
-            )
+            # Just initialize the client without testing
+            logger.info("Successfully initialized OpenAI client")
             return client, None
         except Exception as e:
             logger.error(f"Failed to test OpenAI client connection: {str(e)}")
@@ -201,16 +199,24 @@ def enhance_prompt():
         # Log the request
         logger.info(f"Sending request to DeepSeek API with {prompt_type} prompt of length {len(prompt_text)}")
         
-        # Call DeepSeek API using OpenAI SDK
+        # Call DeepSeek API using OpenAI SDK with better parameters
         response = client.chat.completions.create(
-            model="deepseek-chat",  # Using DeepSeek-V3 model as per documentation
+            model="deepseek-chat",
             messages=messages,
             temperature=0.7,
-            max_tokens=2000,
-            stream=False
+            max_tokens=4000,  # Increased max tokens
+            stream=False,
+            timeout=30  # Added timeout
         )
         
+        # Log the raw response for debugging
+        logger.debug(f"Raw API response: {response}")
+        
         # Extract the enhanced prompt from the response
+        if not response.choices or len(response.choices) == 0:
+            logger.error("API response contains no choices")
+            return jsonify({"error": "Invalid API response format"}), 500
+            
         enhanced_prompt = response.choices[0].message.content
         
         if not enhanced_prompt:
