@@ -291,62 +291,69 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
     
-    // Enhance prompt functionality
+    // Enhance button functionality
     enhanceBtn.addEventListener('click', function() {
-        const promptText = promptInput.value.trim();
+        const prompt = promptInput.value.trim();
         
-        if (!promptText) {
-            showError('Please enter a prompt to enhance.');
+        if (prompt === '') {
+            showError('Please enter a prompt');
             return;
         }
         
-        // Show loading indicator and reset output
-        loadingIndicator.style.display = 'block';
-        outputContent.textContent = '';
-        outputContent.classList.remove('error');
+        // Show loading indicator
+        loadingIndicator.style.display = 'flex';
         
-        // Send request to the backend
+        // Send request to API
         fetch('/enhance', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
             },
-            credentials: 'same-origin',  // Include credentials
             body: JSON.stringify({
-                prompt: promptText,
+                prompt: prompt,
                 type: currentPromptType
-            })
+            }),
+            credentials: 'same-origin'  // Send cookies with the request
         })
         .then(response => {
-            if (response.redirected) {
-                // If we got redirected to login, reload the page
-                window.location.href = response.url;
-                return;
-            }
+            // Check for 401 Unauthorized or other errors
             if (!response.ok) {
-                return response.json().then(errorData => {
-                    throw new Error(errorData.error || `Server error: ${response.status}`);
+                if (response.status === 401) {
+                    // Redirect to login if session is lost
+                    window.location.href = '/login';
+                    throw new Error('Session expired - redirecting to login');
+                }
+                return response.json().then(data => {
+                    throw new Error(data.error || 'Failed to enhance prompt');
                 });
             }
             return response.json();
         })
         .then(data => {
+            // Hide loading indicator
+            loadingIndicator.style.display = 'none';
+            
             if (data.error) {
-                throw new Error(data.error);
+                showError(data.error);
+                return;
             }
             
-            if (!data.enhanced_prompt || data.enhanced_prompt.trim() === '') {
-                throw new Error('Received empty response from the server.');
-            }
-            
+            // Update output content
             outputContent.textContent = data.enhanced_prompt;
+            
+            // Show copy button
+            copyBtn.style.display = 'block';
         })
         .catch(error => {
             console.error('Error:', error);
-            showError(error.message || 'Could not enhance prompt. Please try again.');
-        })
-        .finally(() => {
             loadingIndicator.style.display = 'none';
+            
+            // Check if this is a network error (likely offline)
+            if (error.message.includes('Failed to fetch')) {
+                showError('Network error. Please check your connection.');
+            } else {
+                showError(error.message);
+            }
         });
     });
     

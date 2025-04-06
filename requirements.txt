@@ -8,4 +8,5 @@ authlib==1.3.0
 Flask-Session==0.8.0
 groq==0.22.0
 cachelib==0.13.0
-psutil==5.9.8 
+psutil==5.9.8
+redis==5.0.1 

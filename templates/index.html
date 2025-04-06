@@ -21,13 +21,15 @@
 <body>
     <div class="container">
         <header>
-            <div class="header-content">
-                <div class="logo-section">
-                    <h1>10x Prompt</h1>
-                    <div class="subtitle">Transform simple prompts into powerful instructions</div>
-                </div>
-                <div class="user-controls">
+            <div class="header-container">
+                <h1>10X Prompt Enhancer</h1>
+                <div class="user-info">
+                    {% if user %}
+                    <span>{{ user.username }}</span>
                     <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a>
+                    {% else %}
+                    <a href="{{ url_for('login') }}" class="login-btn">Login</a>
+                    {% endif %}
                 </div>
             </div>
         </header>
