@@ -136,6 +136,7 @@ def login_with_auth0():
         logger.info(f"AUTH0_DOMAIN: {AUTH0_DOMAIN or 'Not set'}")
         logger.info(f"AUTH0_CLIENT_ID: {'Set' if AUTH0_CLIENT_ID else 'Not set'}")
         logger.info(f"AUTH0_CLIENT_SECRET: {'Set' if AUTH0_CLIENT_SECRET else 'Not set'}")
+        logger.info(f"AUTH0_CALLBACK_URL: {AUTH0_CALLBACK_URL or 'Not set'}")
         
         # Check if Auth0 is properly configured
         if not AUTH0_DOMAIN:
@@ -146,6 +147,10 @@ def login_with_auth0():
             logger.error("AUTH0_CLIENT_ID is not configured")
             return render_template('login.html', error="Authentication service configuration error: Missing client ID")
         
+        if not AUTH0_CALLBACK_URL:
+            logger.error("AUTH0_CALLBACK_URL is not configured")
+            return render_template('login.html', error="Authentication service configuration error: Missing callback URL")
+        
         # Generate a nonce for Auth0 to use
         nonce = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
         
@@ -153,15 +158,14 @@ def login_with_auth0():
         session['auth0_nonce'] = nonce
         session.modified = True
         
-        # Hardcoded callback URL as specified in Auth0 settings
-        callback_url = 'https://tenx-prompt-25322b7d0675.herokuapp.com/callback'
-        logger.info(f"Using callback URL: {callback_url}")
+        # Use the callback URL from environment variables
+        logger.info(f"Using callback URL: {AUTH0_CALLBACK_URL}")
         
         # Construct the Auth0 authorization URL
         params = {
             'response_type': 'code',
             'client_id': AUTH0_CLIENT_ID,
-            'redirect_uri': callback_url,
+            'redirect_uri': AUTH0_CALLBACK_URL,
             'scope': 'openid profile email',
             'nonce': nonce,
             'state': ''.join(random.choices(string.ascii_letters + string.digits, k=32))
@@ -202,8 +206,9 @@ def callback():
             logger.error("Auth0 configuration is incomplete for token exchange")
             return render_template('login.html', error="Authentication service is not properly configured.")
         
-        # Set the callback URL to match what's configured in Auth0
-        callback_url = 'https://tenx-prompt-25322b7d0675.herokuapp.com/callback'
+        if not AUTH0_CALLBACK_URL:
+            logger.error("AUTH0_CALLBACK_URL is not configured")
+            return render_template('login.html', error="Authentication service configuration error: Missing callback URL")
         
         # Exchange the authorization code for tokens
         token_url = f'https://{AUTH0_DOMAIN}/oauth/token'
@@ -212,10 +217,10 @@ def callback():
             'client_id': AUTH0_CLIENT_ID,
             'client_secret': AUTH0_CLIENT_SECRET,
             'code': code,
-            'redirect_uri': callback_url
+            'redirect_uri': AUTH0_CALLBACK_URL
         }
         
-        logger.info(f"Exchanging code for tokens with callback URL: {callback_url}")
+        logger.info(f"Exchanging code for tokens with callback URL: {AUTH0_CALLBACK_URL}")
         
         # Make the token exchange request
         token_response = requests.post(token_url, json=token_payload)
