@@ -11,6 +11,7 @@ from functools import wraps
 import time
 from requests.exceptions import RequestException, Timeout, ConnectionError
 import sys
+from flask_session import Session  # Add Flask-Session import
 
 # Configure logging for Heroku
 logging.basicConfig(
@@ -43,6 +44,12 @@ app.config['PREFERRED_URL_SCHEME'] = 'https'
 app.config['SESSION_COOKIE_NAME'] = '10x_prompt_session'
 app.config['SESSION_COOKIE_DOMAIN'] = None  # Let Flask set this automatically
 app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1 hour
+app.config['SESSION_TYPE'] = 'filesystem'  # Use filesystem session storage for better persistence
+app.config['SESSION_FILE_DIR'] = os.getenv('SESSION_FILE_DIR', '/tmp/flask_session')
+app.config['SESSION_USE_SIGNER'] = True
+
+# Initialize Flask-Session
+Session(app)
 
 # Auth0 configuration
 app.config['AUTH0_CLIENT_ID'] = os.getenv('AUTH0_CLIENT_ID')
@@ -165,9 +172,11 @@ def check_api_health(client, is_groq=True):
     def health_check():
         try:
             logger.info(f"\n=== Starting {api_name} Health Check ===")
-            # Use different models and prompts for each API
+            
+            # Use different models for each API
             if is_groq:
-                model = "llama-3.1-8b-instant"  # Try a simpler model for testing
+                # Use Groq's most reliable model
+                model = "llama-3.1-8b-instant"
                 logger.info(f"Using model: {model}")
                 logger.info(f"API URL: {GROQ_API_URL}")
                 logger.info(f"API Key configured: {'Yes' if GROQ_API_KEY else 'No'}")
@@ -184,23 +193,21 @@ def check_api_health(client, is_groq=True):
             
             logger.info(f"Sending test request to {api_name} API...")
             
-            # Then try the chat completion with simplified parameters
+            # Simplify the test request to minimize potential issues
             if is_groq:
                 try:
-                    logger.info("Attempting Groq API request with parameters:")
+                    logger.info("Attempting Groq API request with simplified parameters:")
                     logger.info({
                         "model": model,
-                        "messages": [
-                            {"role": "user", "content": "Hi"}
-                        ],
-                        "max_tokens": 5
+                        "messages": [{"role": "user", "content": "hello"}],
+                        "max_tokens": 1
                     })
+                    
+                    # For Groq, use absolute minimal parameters
                     response = client.chat.completions.create(
-                        messages=[
-                            {"role": "user", "content": "Hi"}
-                        ],
+                        messages=[{"role": "user", "content": "hello"}],
                         model=model,
-                        max_tokens=5
+                        max_tokens=1
                     )
                 except Exception as api_e:
                     logger.error(f"Groq API request failed with error: {str(api_e)}")
@@ -211,22 +218,23 @@ def check_api_health(client, is_groq=True):
                         logger.error(f"Response body: {getattr(api_e.response, 'text', 'N/A')}")
                     raise
             else:
+                # For DeepSeek, use their standard approach
                 response = client.chat.completions.create(
                     model=model,
-                    messages=[
-                        {"role": "user", "content": "Hi"}
-                    ],
-                    max_tokens=10,
-                    stream=False
+                    messages=[{"role": "user", "content": "hello"}],
+                    max_tokens=5
                 )
             
-            logger.info(f"{api_name} API Response: {response}")
-            
+            # Check if response has expected fields
             if not hasattr(response, 'choices') or not response.choices:
                 error_msg = "API response missing choices"
                 logger.error(f"{api_name} API health check failed: {error_msg}")
                 logger.error(f"Raw response: {response}")
                 raise APIError(error_msg)
+            
+            # Log successful response
+            logger.info(f"{api_name} API responded successfully")
+            logger.info(f"Response: {response}")
             
             # Update status on success
             status.is_healthy = True
@@ -256,7 +264,13 @@ def check_api_health(client, is_groq=True):
             
             logger.error(f"=== {api_name} Health Check Failed ===\n")
             return False, error_msg
-    return health_check()
+    
+    # Try health check with retry logic
+    try:
+        return health_check()
+    except Exception as e:
+        logger.error(f"Health check failed even with retries: {str(e)}")
+        return False, str(e)
 
 def perform_health_checks():
     """Perform health checks on both APIs"""
@@ -341,14 +355,14 @@ def initialize_groq_client():
             logger.info("Sending test request to Groq API...")
             logger.info("Request parameters:")
             logger.info({
-                "model": "llama-3.1-8b-instant",  # Try a simpler model for testing
+                "model": "llama-3.1-8b-instant",
                 "messages": [{"role": "user", "content": "Hi"}],
                 "max_tokens": 5
             })
             
             response = client.chat.completions.create(
                 messages=[{"role": "user", "content": "Hi"}],
-                model="llama-3.1-8b-instant",  # Try a simpler model for testing
+                model="llama-3.1-8b-instant",
                 max_tokens=5
             )
             logger.info("Successfully tested Groq connection")
@@ -361,7 +375,8 @@ def initialize_groq_client():
                 logger.error(f"Response Status: {getattr(e.response, 'status_code', 'N/A')}")
                 logger.error(f"Response Headers: {getattr(e.response, 'headers', {})}")
                 logger.error(f"Response Body: {getattr(e.response, 'text', 'N/A')}")
-            raise
+            # Don't raise the exception, return with error message
+            return None, f"Groq connection test failed: {str(e)}"
         
         logger.info("=== Groq Client Initialization Complete ===\n")
         return client, None
@@ -510,6 +525,8 @@ def index():
 
 @app.route('/login')
 def login():
+    # Clear any existing session to prevent state mismatches
+    session.clear()
     return auth0.authorize_redirect(redirect_uri=app.config['AUTH0_CALLBACK_URL'])
 
 @app.route('/callback')
@@ -543,17 +560,26 @@ def callback_handling():
         
         logger.info("Session data set successfully")
         logger.info(f"Current session: {dict(session)}")
+        logger.info(f"Session ID: {request.cookies.get(app.config['SESSION_COOKIE_NAME'], 'None')}")
+        
+        # Force session save
+        session.modified = True
         
         return redirect(url_for('index'))
     except Exception as e:
         logger.error(f"Error in callback: {str(e)}")
         logger.error(f"Full error details: {e.__class__.__name__}: {str(e)}")
+        logger.error(f"Request: {request.url}")
+        logger.error(f"Request cookies: {request.cookies}")
         return redirect(url_for('login'))
 
 @app.before_request
 def before_request():
     logger.info(f"Request path: {request.path}")
+    logger.info(f"Request method: {request.method}")
+    logger.info(f"Request headers: {dict(request.headers)}")
     logger.info(f"Session contents: {session}")
+    logger.info(f"Session ID: {request.cookies.get(app.config['SESSION_COOKIE_NAME'], 'None')}")
     if 'profile' in session:
         logger.info(f"User authenticated: {session['profile'].get('name', 'Unknown')}")
     else:
@@ -578,18 +604,6 @@ def logout():
 @requires_auth
 def enhance_prompt():
     try:
-        # Check API health before processing
-        api_health = perform_health_checks()
-        
-        # Log API health status
-        logger.info("\n=== API Health Status for Enhance Request ===")
-        logger.info(f"Groq: {'healthy' if api_health['groq']['healthy'] else 'unhealthy'}")
-        logger.info(f"DeepSeek: {'healthy' if api_health['deepseek']['healthy'] else 'unhealthy'}")
-        
-        if not api_health["groq"]["healthy"] and not api_health["deepseek"]["healthy"]:
-            logger.error("Both APIs are unhealthy")
-            return jsonify({"error": "All APIs are currently unavailable"}), 503
-        
         data = request.json
         if not data:
             logger.warning("No JSON data received")
@@ -602,8 +616,44 @@ def enhance_prompt():
             logger.warning("Empty prompt received")
             return jsonify({"error": "No prompt provided"}), 400
         
-        # Select the appropriate system message based on prompt type (simplified for testing)
-        system_message = "Improve this prompt" if prompt_type == 'system' else "Improve this user prompt"
+        logger.info(f"Received enhance request - prompt length: {len(prompt_text)}, type: {prompt_type}")
+        
+        # Check API health before processing
+        api_health = perform_health_checks()
+        
+        # Log API health status
+        logger.info("\n=== API Health Status for Enhance Request ===")
+        logger.info(f"Groq: {'healthy' if api_health['groq']['healthy'] else 'unhealthy'}")
+        logger.info(f"DeepSeek: {'healthy' if api_health['deepseek']['healthy'] else 'unhealthy'}")
+        
+        if not api_health["groq"]["healthy"] and not api_health["deepseek"]["healthy"]:
+            logger.error("Both APIs are unhealthy")
+            # Try one more health check with fresh clients
+            logger.info("Attempting to reinitialize API clients for one more attempt")
+            
+            try:
+                # Reinitialize Groq client
+                new_groq_client, _ = initialize_groq_client()
+                if new_groq_client:
+                    logger.info("Successfully reinitialized Groq client, attempting health check")
+                    groq_health, _ = check_api_health(new_groq_client, True)
+                    if groq_health:
+                        logger.info("Groq API is now healthy after reinitialization")
+                        global groq_client
+                        groq_client = new_groq_client
+                        api_health["groq"]["healthy"] = True
+            except Exception as e:
+                logger.error(f"Error reinitializing Groq client: {str(e)}")
+            
+            # If still no healthy APIs, return error
+            if not api_health["groq"]["healthy"] and not api_health["deepseek"]["healthy"]:
+                return jsonify({"error": "All APIs are currently unavailable. Please try again later."}), 503
+        
+        # Select the appropriate system message based on prompt type
+        if prompt_type == 'system':
+            system_message = "You are an expert at improving system prompts for AI models. Rewrite the provided system prompt to be more precise, effective, and clear."
+        else:
+            system_message = "You are an expert at improving user prompts for AI models. Rewrite the provided prompt to be clearer and more effective at getting the desired response."
         
         # Prepare the messages for the API
         messages = [
@@ -693,6 +743,82 @@ def enhance_prompt():
     except Exception as e:
         logger.exception(f"Unexpected error in enhance_prompt: {str(e)}")
         return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
+
+@app.route('/system-health')
+def system_health():
+    """Comprehensive system health check endpoint for monitoring"""
+    try:
+        # Check environment variables
+        env_check = {
+            "GROQ_API_KEY": bool(GROQ_API_KEY),
+            "DEEPSEEK_API_KEY": bool(DEEPSEEK_API_KEY),
+            "AUTH0_CLIENT_ID": bool(app.config.get('AUTH0_CLIENT_ID')),
+            "AUTH0_DOMAIN": bool(app.config.get('AUTH0_DOMAIN')),
+            "SESSION_CONFIGURED": bool(app.config.get('SESSION_TYPE'))
+        }
+        
+        # Check API health
+        api_health = perform_health_checks()
+        
+        # Check session configuration
+        session_info = {
+            "session_type": app.config.get('SESSION_TYPE', 'unknown'),
+            "cookie_secure": app.config.get('SESSION_COOKIE_SECURE', False),
+            "file_dir": app.config.get('SESSION_FILE_DIR', 'unknown') if app.config.get('SESSION_TYPE') == 'filesystem' else None
+        }
+        
+        # Check system resource information
+        import psutil
+        try:
+            system_resources = {
+                "memory_percent": psutil.virtual_memory().percent,
+                "cpu_percent": psutil.cpu_percent(interval=0.1),
+                "disk_percent": psutil.disk_usage('/').percent
+            }
+        except:
+            system_resources = {"error": "Could not get system resource info"}
+        
+        # Determine overall status
+        apis_healthy = any(api["healthy"] for api in api_health.values())
+        env_healthy = all(env_check.values())
+        
+        overall_status = "healthy" if apis_healthy and env_healthy else "degraded"
+        if not apis_healthy:
+            overall_status = "critical"
+        
+        # Create response
+        response = {
+            "status": overall_status,
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
+            "environment": env_check,
+            "apis": {
+                "groq": {
+                    "status": "healthy" if api_health["groq"]["healthy"] else "unhealthy",
+                    "last_check": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(groq_status.last_check_time)) if groq_status.last_check_time else None,
+                    "consecutive_failures": groq_status.consecutive_failures,
+                    "error": api_health["groq"]["error"]
+                },
+                "deepseek": {
+                    "status": "healthy" if api_health["deepseek"]["healthy"] else "unhealthy",
+                    "last_check": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(deepseek_status.last_check_time)) if deepseek_status.last_check_time else None,
+                    "consecutive_failures": deepseek_status.consecutive_failures,
+                    "error": api_health["deepseek"]["error"]
+                }
+            },
+            "session": session_info,
+            "system_resources": system_resources
+        }
+        
+        status_code = 200 if overall_status == "healthy" else 503 if overall_status == "critical" else 207
+        
+        return jsonify(response), status_code
+    except Exception as e:
+        logger.exception(f"Error in system health check: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "error": str(e),
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+        }), 500
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
