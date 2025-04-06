@@ -74,11 +74,26 @@ auth0 = oauth.register(
     server_metadata_url=f'https://{app.config["AUTH0_DOMAIN"]}/.well-known/openid-configuration'
 )
 
-# API Configuration
+# API Configuration (with validation)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GROQ_API_URL = "https://api.groq.com/openai/v1"
+if not GROQ_API_KEY:
+    logger.error("GROQ_API_KEY environment variable is not set!")
+
+GROQ_API_URL = os.getenv("GROQ_API_URL", "https://api.groq.com/openai/v1")
+logger.info(f"Using Groq API URL: {GROQ_API_URL}")
+
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
-DEEPSEEK_API_URL = os.getenv("API_URL", "https://api.deepseek.com/v1")
+if not DEEPSEEK_API_KEY:
+    logger.error("DEEPSEEK_API_KEY environment variable is not set!")
+
+DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "https://api.deepseek.com/v1")
+logger.info(f"Using DeepSeek API URL: {DEEPSEEK_API_URL}")
+
+# Check for Heroku environment
+if os.getenv('HEROKU_APP_NAME'):
+    logger.info(f"Running on Heroku with app name: {os.getenv('HEROKU_APP_NAME')}")
+else:
+    logger.info("Running in development environment")
 
 class APIError(Exception):
     """Custom exception for API-related errors"""
@@ -114,13 +129,16 @@ def retry_with_backoff(func, max_retries=3, initial_delay=1):
 
 def log_api_details():
     """Log API configuration details"""
-    logger.info("=== API Configuration ===")
+    logger.info("\n=== API Configuration ===")
     # Groq Configuration
     if GROQ_API_KEY:
         logger.info("Groq API Key: Configured")
         logger.info(f"Groq API URL: {GROQ_API_URL}")
         # Log first few characters of API key for verification (safely)
-        logger.info(f"Groq API Key Preview: {GROQ_API_KEY[:4]}...")
+        try:
+            logger.info(f"Groq API Key Preview: {GROQ_API_KEY[:4]}...")
+        except:
+            logger.error("Could not log Groq API key preview - key may be invalid")
     else:
         logger.error("Groq API Key: Not configured")
     
@@ -128,12 +146,15 @@ def log_api_details():
     if DEEPSEEK_API_KEY:
         logger.info("DeepSeek API Key: Configured")
         logger.info(f"DeepSeek API URL: {DEEPSEEK_API_URL}")
-        logger.info(f"DeepSeek API Key Preview: {DEEPSEEK_API_KEY[:4]}...")
+        try:
+            logger.info(f"DeepSeek API Key Preview: {DEEPSEEK_API_KEY[:4]}...")
+        except:
+            logger.error("Could not log DeepSeek API key preview - key may be invalid")
     else:
         logger.error("DeepSeek API Key: Not configured")
+    logger.info("=== End API Configuration ===\n")
 
 # Call this right after loading environment variables
-load_dotenv()
 log_api_details()
 
 def check_api_health(client, is_groq=True):
@@ -146,7 +167,7 @@ def check_api_health(client, is_groq=True):
             logger.info(f"\n=== Starting {api_name} Health Check ===")
             # Use different models and prompts for each API
             if is_groq:
-                model = "llama-3.3-70b-versatile"  # Using the correct Groq model
+                model = "llama-3.1-8b-instant"  # Try a simpler model for testing
                 logger.info(f"Using model: {model}")
                 logger.info(f"API URL: {GROQ_API_URL}")
                 logger.info(f"API Key configured: {'Yes' if GROQ_API_KEY else 'No'}")
@@ -163,29 +184,23 @@ def check_api_health(client, is_groq=True):
             
             logger.info(f"Sending test request to {api_name} API...")
             
-            # Then try the chat completion
+            # Then try the chat completion with simplified parameters
             if is_groq:
                 try:
                     logger.info("Attempting Groq API request with parameters:")
                     logger.info({
                         "model": model,
                         "messages": [
-                            {"role": "system", "content": "You are a helpful assistant."},
                             {"role": "user", "content": "Hi"}
                         ],
-                        "max_tokens": 10,
-                        "temperature": 1.0,
-                        "n": 1
+                        "max_tokens": 5
                     })
                     response = client.chat.completions.create(
                         messages=[
-                            {"role": "system", "content": "You are a helpful assistant."},
                             {"role": "user", "content": "Hi"}
                         ],
                         model=model,
-                        max_tokens=10,
-                        temperature=1.0,  # Ensuring temperature > 0
-                        n=1  # Must be 1 for Groq
+                        max_tokens=5
                     )
                 except Exception as api_e:
                     logger.error(f"Groq API request failed with error: {str(api_e)}")
@@ -199,7 +214,6 @@ def check_api_health(client, is_groq=True):
                 response = client.chat.completions.create(
                     model=model,
                     messages=[
-                        {"role": "system", "content": "You are a helpful assistant."},
                         {"role": "user", "content": "Hi"}
                     ],
                     max_tokens=10,
@@ -310,36 +324,32 @@ def initialize_groq_client():
         return None, "Groq API key not configured. Please check your environment variables."
     
     try:
-        # Create client with Groq configuration using OpenAI client
+        # Create client with simpler Groq configuration
         logger.info("Creating Groq client with OpenAI configuration...")
         client = OpenAI(
-            base_url="https://api.groq.com/openai/v1",
             api_key=GROQ_API_KEY,
+            base_url="https://api.groq.com/openai/v1",
             # Add reasonable timeout and max retries
-            timeout=60.0,
-            max_retries=2
+            timeout=30.0,
+            max_retries=1
         )
         
         # Test the client with a simple request
         logger.info("Testing Groq client connection...")
         try:
-            # Test chat completion with supported parameters only
+            # Test chat completion with minimal parameters
             logger.info("Sending test request to Groq API...")
             logger.info("Request parameters:")
             logger.info({
-                "model": "llama-3.3-70b-versatile",
+                "model": "llama-3.1-8b-instant",  # Try a simpler model for testing
                 "messages": [{"role": "user", "content": "Hi"}],
-                "max_tokens": 10,
-                "temperature": 1.0,
-                "n": 1
+                "max_tokens": 5
             })
             
             response = client.chat.completions.create(
                 messages=[{"role": "user", "content": "Hi"}],
-                model="llama-3.3-70b-versatile",
-                max_tokens=10,
-                temperature=1.0,  # Ensuring temperature > 0
-                n=1  # Must be 1 for Groq
+                model="llama-3.1-8b-instant",  # Try a simpler model for testing
+                max_tokens=5
             )
             logger.info("Successfully tested Groq connection")
             logger.info(f"Response: {response}")
@@ -572,7 +582,7 @@ def enhance_prompt():
         api_health = perform_health_checks()
         
         # Log API health status
-        logger.info("API Health Status:")
+        logger.info("\n=== API Health Status for Enhance Request ===")
         logger.info(f"Groq: {'healthy' if api_health['groq']['healthy'] else 'unhealthy'}")
         logger.info(f"DeepSeek: {'healthy' if api_health['deepseek']['healthy'] else 'unhealthy'}")
         
@@ -592,8 +602,8 @@ def enhance_prompt():
             logger.warning("Empty prompt received")
             return jsonify({"error": "No prompt provided"}), 400
         
-        # Select the appropriate system message based on prompt type
-        system_message = SYSTEM_PROMPT_OPTIMIZER if prompt_type == 'system' else USER_PROMPT_OPTIMIZER
+        # Select the appropriate system message based on prompt type (simplified for testing)
+        system_message = "Improve this prompt" if prompt_type == 'system' else "Improve this user prompt"
         
         # Prepare the messages for the API
         messages = [
@@ -603,28 +613,26 @@ def enhance_prompt():
         
         def try_api_call(client, is_groq=True):
             try:
-                model = "llama-3.3-70b-versatile" if is_groq else "deepseek-chat"
-                logger.info(f"Attempting request with {'Groq' if is_groq else 'DeepSeek'} API using model: {model}")
+                model = "llama-3.1-8b-instant" if is_groq else "deepseek-chat"
+                logger.info(f"Attempting enhance request with {'Groq' if is_groq else 'DeepSeek'} API")
+                logger.info(f"Using model: {model}")
+                logger.info(f"Prompt length: {len(prompt_text)} characters")
                 
+                # Simplified call with minimal parameters
                 if is_groq:
                     response = client.chat.completions.create(
                         messages=messages,
-                        model=model,
-                        temperature=1.0,  # Ensuring temperature > 0
-                        n=1  # Must be 1 for Groq
+                        model=model
                     )
                 else:
                     response = client.chat.completions.create(
                         model=model,
-                        messages=messages,
-                        stream=False
+                        messages=messages
                     )
                 
-                # Log the raw response for debugging
-                logger.info(f"API Response from {model}: {response}")
-                
-                if not hasattr(response, 'choices') or not response.choices:
-                    raise APIError("Invalid API response format")
+                # Log success
+                logger.info(f"API request successful with {model}")
+                logger.info(f"Response choices: {len(response.choices)}")
                 
                 # Update health status on successful call
                 status = groq_status if is_groq else deepseek_status
@@ -635,6 +643,8 @@ def enhance_prompt():
                 return response.choices[0].message.content
             except Exception as e:
                 logger.error(f"{'Groq' if is_groq else 'DeepSeek'} API call failed: {str(e)}")
+                logger.error(f"Error type: {type(e).__name__}")
+                
                 # Log detailed error information
                 if hasattr(e, 'response'):
                     logger.error(f"Response Status: {getattr(e.response, 'status_code', 'N/A')}")
@@ -649,42 +659,40 @@ def enhance_prompt():
                 raise
 
         # Try Groq first if it's healthy, otherwise try DeepSeek
-        try:
-            if groq_client is not None and api_health["groq"]["healthy"]:
+        enhanced_prompt = None
+        error_message = None
+        
+        # Try primary API
+        if groq_client is not None and api_health["groq"]["healthy"]:
+            try:
                 enhanced_prompt = try_api_call(groq_client, True)
                 logger.info("Successfully enhanced prompt using Groq API")
-            elif deepseek_client is not None and api_health["deepseek"]["healthy"]:
+            except Exception as e:
+                error_message = str(e)
+                logger.error(f"Groq API failed, trying fallback: {error_message}")
+        
+        # If Groq failed or is unhealthy, try DeepSeek
+        if enhanced_prompt is None and deepseek_client is not None and api_health["deepseek"]["healthy"]:
+            try:
                 enhanced_prompt = try_api_call(deepseek_client, False)
                 logger.info("Successfully enhanced prompt using DeepSeek API (fallback)")
-            else:
-                return jsonify({"error": "No healthy API clients available"}), 503
-            
+            except Exception as e:
+                if error_message:
+                    error_message += f" | DeepSeek error: {str(e)}"
+                else:
+                    error_message = str(e)
+                logger.error(f"DeepSeek API also failed: {str(e)}")
+        
+        # Return result or error
+        if enhanced_prompt:
             return jsonify({"enhanced_prompt": enhanced_prompt})
-            
-        except Exception as e:
-            # If primary API fails, try the other one if it's healthy
-            if (groq_client is not None and deepseek_client is not None and 
-                ((api_health["groq"]["healthy"] and not api_health["deepseek"]["healthy"]) or 
-                 (not api_health["groq"]["healthy"] and api_health["deepseek"]["healthy"]))):
-                try:
-                    # Try the other API
-                    if api_health["deepseek"]["healthy"]:
-                        enhanced_prompt = try_api_call(deepseek_client, False)
-                        logger.info("Successfully enhanced prompt using DeepSeek API (fallback)")
-                    else:
-                        enhanced_prompt = try_api_call(groq_client, True)
-                        logger.info("Successfully enhanced prompt using Groq API (fallback)")
-                    return jsonify({"enhanced_prompt": enhanced_prompt})
-                except Exception as fallback_e:
-                    logger.error(f"Both APIs failed. Primary error: {str(e)}, Fallback error: {str(fallback_e)}")
-                    return jsonify({"error": "All API attempts failed"}), 503
-            else:
-                logger.error(f"API call failed and no healthy fallback available: {str(e)}")
-                return jsonify({"error": "API request failed"}), 503
+        else:
+            logger.error("All API attempts failed")
+            return jsonify({"error": "API request failed: " + (error_message or "Unknown error")}), 503
                 
     except Exception as e:
-        logger.exception("Unexpected error in enhance_prompt")
-        return jsonify({"error": "An unexpected error occurred"}), 500
+        logger.exception(f"Unexpected error in enhance_prompt: {str(e)}")
+        return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
