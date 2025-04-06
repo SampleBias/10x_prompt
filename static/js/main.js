@@ -339,11 +339,44 @@ document.addEventListener('DOMContentLoaded', function() {
                 throw new Error('Received empty response from the server.');
             }
             
+            // Display the enhanced prompt
             outputContent.textContent = data.enhanced_prompt;
+            
+            // Add metadata display below the output
+            const metadataHtml = `
+                <div class="output-metadata">
+                    <span>Provider: ${data.metadata.provider}</span>
+                    <span>Model: ${data.metadata.model}</span>
+                    <span>Time: ${data.metadata.time_taken}s</span>
+                </div>
+            `;
+            
+            // Create a container for the metadata
+            const metadataContainer = document.createElement('div');
+            metadataContainer.className = 'metadata-container';
+            metadataContainer.innerHTML = metadataHtml;
+            
+            // Add the metadata after the output content
+            outputContent.parentNode.insertBefore(metadataContainer, outputContent.nextSibling);
         })
         .catch(error => {
             console.error('Error:', error);
-            showError(error.message || 'Could not enhance prompt. Please try again.');
+            
+            // Determine if this is an API error or another type of error
+            const errorMessage = error.message || 'An unknown error occurred';
+            let userFriendlyMessage;
+            
+            if (errorMessage.includes('API request failed') || 
+                errorMessage.includes('rate limit') || 
+                errorMessage.includes('timeout')) {
+                userFriendlyMessage = 'The enhancement service is currently experiencing high demand. Please try again in a moment.';
+            } else if (errorMessage.includes('authentication') || errorMessage.includes('SESSION_LOST')) {
+                userFriendlyMessage = 'Your session has expired. Please refresh the page and log in again.';
+            } else {
+                userFriendlyMessage = 'Could not enhance prompt. Please try again or use a different prompt.';
+            }
+            
+            showError(`${userFriendlyMessage}<br><small>(${errorMessage})</small>`);
         })
         .finally(() => {
             loadingIndicator.style.display = 'none';
@@ -352,7 +385,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Function to show error messages
     function showError(message) {
-        outputContent.textContent = message;
+        outputContent.innerHTML = message;
         outputContent.classList.add('error');
     }
     

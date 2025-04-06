@@ -356,11 +356,160 @@ def enhance_prompt():
         # Log the user making the request
         logger.info(f"Enhancement requested by: {session['profile'].get('name')} (User ID: {session['profile'].get('user_id')})")
         
-        # For demo purposes, add some delay to simulate processing
-        time.sleep(1)
+        # Get start time for performance measurement
+        start_time = time.time()
         
-        # Return a simple enhanced version (placeholder for actual API integration)
-        enhanced_prompt = f"Enhanced ({prompt_type}): {input_prompt}"
+        # Prepare the enhancement request based on prompt type
+        if prompt_type == 'user':
+            system_message = """You are an expert prompt engineer. Your task is to enhance user prompts to make them more effective, specific, and detailed. 
+            Make the prompt clearer, add relevant context, improve structure, and ensure it will get better results from AI models.
+            Do not include explanations or commentary - just return the enhanced prompt itself."""
+        else:  # system prompt
+            system_message = """You are an expert prompt engineer. Your task is to enhance system prompts that are used to control AI assistant behavior.
+            Improve the clarity, specificity, and effectiveness of the system prompt. Make it more detailed, address edge cases, and ensure consistent behavior.
+            Do not include explanations or commentary - just return the enhanced system prompt itself."""
+        
+        # Try to use Groq API first
+        groq_api_key = os.environ.get('GROQ_API_KEY')
+        enhanced_prompt = None
+        api_provider = None
+        api_model = None
+        error_message = None
+        
+        if groq_api_key:
+            try:
+                # Initialize Groq client
+                import groq
+                client = groq.Client(api_key=groq_api_key)
+                
+                # Make the API call using the Groq SDK
+                chat_completion = client.chat.completions.create(
+                    model="llama3-70b-8192",
+                    messages=[
+                        {"role": "system", "content": system_message},
+                        {"role": "user", "content": input_prompt}
+                    ],
+                    temperature=0.7,
+                    max_tokens=4096
+                )
+                
+                # Extract the enhanced prompt
+                enhanced_prompt = chat_completion.choices[0].message.content.strip()
+                api_provider = "Groq"
+                api_model = "llama3-70b-8192"
+                
+            except Exception as groq_err:
+                logger.warning(f"Groq API error, will try fallback: {str(groq_err)}")
+                error_message = str(groq_err)
+        else:
+            logger.warning("Groq API key not found, will try fallback")
+        
+        # Fallback to DeepSeek API if Groq failed or wasn't available
+        if not enhanced_prompt:
+            deepseek_api_key = os.environ.get('DEEPSEEK_API_KEY')
+            deepseek_api_url = os.environ.get('API_URL', 'https://api.deepseek.com/v1')
+            
+            if deepseek_api_key:
+                try:
+                    # Make API request to DeepSeek
+                    headers = {
+                        "Authorization": f"Bearer {deepseek_api_key}",
+                        "Content-Type": "application/json"
+                    }
+                    
+                    payload = {
+                        "model": "deepseek-chat",
+                        "messages": [
+                            {"role": "system", "content": system_message},
+                            {"role": "user", "content": input_prompt}
+                        ],
+                        "temperature": 0.7,
+                        "max_tokens": 4096
+                    }
+                    
+                    response = requests.post(
+                        f"{deepseek_api_url}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                        timeout=30
+                    )
+                    
+                    response.raise_for_status()
+                    response_data = response.json()
+                    
+                    # Extract the enhanced prompt from the response
+                    enhanced_prompt = response_data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+                    api_provider = "DeepSeek"
+                    api_model = "deepseek-chat"
+                    
+                except Exception as deepseek_err:
+                    logger.warning(f"DeepSeek API error, will try local enhancement: {str(deepseek_err)}")
+                    if error_message:
+                        error_message += f"; DeepSeek error: {str(deepseek_err)}"
+                    else:
+                        error_message = f"DeepSeek error: {str(deepseek_err)}"
+            else:
+                logger.warning("DeepSeek API key not found, will try local enhancement")
+                if error_message:
+                    error_message += "; DeepSeek API key not found"
+                else:
+                    error_message = "DeepSeek API key not found"
+        
+        # Last resort: Local enhancement (for resilience when APIs are down/rate limited)
+        if not enhanced_prompt:
+            logger.warning("All API calls failed, using local enhancement as last resort")
+            
+            # Create a basic enhancement function
+            def local_enhance(prompt, prompt_type):
+                if prompt_type == 'user':
+                    # Simple enhancement rules for user prompts
+                    enhanced = prompt
+                    
+                    # Add specificity and detail
+                    if not any(word in prompt.lower() for word in ['specific', 'detailed', 'in-depth']):
+                        enhanced = f"I need a detailed and specific response for the following: {enhanced}"
+                    
+                    # Add output format if none specified
+                    if not any(word in prompt.lower() for word in ['format', 'structure', 'organize']):
+                        enhanced += "\n\nPlease structure your response in a clear, well-organized format with sections and bullet points where appropriate."
+                    
+                    # Add clarity request
+                    if not any(word in prompt.lower() for word in ['clear', 'easy to understand', 'simple language']):
+                        enhanced += "\n\nUse clear language and explain any technical terms or concepts."
+                        
+                    return enhanced
+                    
+                else:  # system prompt
+                    # Simple enhancement rules for system prompts
+                    enhanced = prompt
+                    
+                    # Add edge case handling
+                    if not any(word in prompt.lower() for word in ['edge case', 'exception', 'special case']):
+                        enhanced += "\n\nHandle edge cases thoughtfully and make reasonable assumptions when information is ambiguous or incomplete."
+                    
+                    # Add consistency requirement
+                    if not any(word in prompt.lower() for word in ['consistent', 'coherent', 'maintain']):
+                        enhanced += "\n\nMaintain consistent behavior and tone throughout all interactions."
+                        
+                    return enhanced
+            
+            # Apply the local enhancement
+            enhanced_prompt = local_enhance(input_prompt, prompt_type)
+            api_provider = "Local"
+            api_model = "Rule-based"
+            
+            # Log that we used the local enhancement
+            logger.info("Used local enhancement method as fallback")
+        
+        if not enhanced_prompt:
+            logger.error("All enhancement methods failed")
+            error_msg = "Failed to enhance prompt (all methods failed)"
+            if error_message:
+                error_msg += f": {error_message}"
+            return jsonify({"error": error_msg}), 500
+        
+        # Calculate time taken
+        time_taken = time.time() - start_time
         
         # Return the enhanced prompt
         return jsonify({
@@ -368,9 +517,9 @@ def enhance_prompt():
             "original_prompt": input_prompt,
             "prompt_type": prompt_type,
             "metadata": {
-                "provider": "Demo",
-                "model": "Mock-GPT",
-                "time_taken": 1.0,
+                "provider": api_provider,
+                "model": api_model,
+                "time_taken": round(time_taken, 2),
                 "token_count": len(enhanced_prompt.split())
             }
         })

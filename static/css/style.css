@@ -317,23 +317,25 @@ textarea {
 
 /* Output Section */
 .output-section {
-    background-color: #fff;
+    margin-top: 20px;
+    background-color: #f8f9fa;
     border-radius: 8px;
-    padding: 1.5rem;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+    overflow: hidden;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
 }
 
 .output-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 1rem;
+    padding: 10px 15px;
+    background-color: #e9ecef;
+    border-bottom: 1px solid #dee2e6;
 }
 
 .output-title {
-    font-size: 1.2rem;
     font-weight: 600;
-    color: #000;
+    color: #495057;
 }
 
 .copy-btn {
@@ -354,21 +356,45 @@ textarea {
 }
 
 .output-content {
-    background-color: #f9f9f9;
-    border: 1px solid #eee;
-    border-radius: 4px;
-    padding: 1rem;
-    min-height: 150px;
+    padding: 15px;
+    min-height: 100px;
     white-space: pre-wrap;
-    font-family: inherit;
-    font-size: 1rem;
+    line-height: 1.5;
 }
 
-/* Error styling */
+/* New styles for the metadata section */
+.metadata-container {
+    background-color: #f1f3f5;
+    padding: 10px 15px;
+    border-top: 1px solid #dee2e6;
+    font-size: 0.85rem;
+    color: #6c757d;
+}
+
+.output-metadata {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+}
+
+.output-metadata span {
+    background-color: #e9ecef;
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-family: monospace;
+}
+
 .output-content.error {
-    color: #e74c3c;
-    background-color: #fef0f0;
-    border-color: #f9d7d7;
+    color: #dc3545;
+    background-color: #f8d7da;
+    border: 1px solid #f5c6cb;
+}
+
+.output-content.error small {
+    display: block;
+    margin-top: 8px;
+    opacity: 0.8;
+    font-size: 0.85rem;
 }
 
 /* Template Modal */
