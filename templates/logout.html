@@ -1,16 +1,86 @@
-{% extends "base.html" %}
-
-{% block title %}Thank You - 10x Prompt{% endblock %}
-
-{% block content %}
-<div class="min-h-screen flex items-center justify-center">
-    <div class="text-center">
-        <h1 class="text-4xl font-bold text-gray-900 mb-4">Thank You</h1>
-        <p class="text-xl text-gray-600 mb-8">for using 10x Prompt</p>
-        <a href="{{ url_for('login') }}" 
-           class="inline-block bg-blue-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors">
-            Sign in again
-        </a>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logged Out - 10x Prompt</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Favicon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2220%22 fill=%22%23000%22 /><text x=%2250%22 y=%2265%22 font-family=%22Arial, sans-serif%22 font-size=%2245%22 font-weight=%22bold%22 text-anchor=%22middle%22 fill=%22%23fff%22>10x</text></svg>" type="image/svg+xml">
+    <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+    <style>
+        .logout-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        
+        .logout-card {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+            padding: 3rem;
+            text-align: center;
+            max-width: 500px;
+        }
+        
+        .logout-title {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            color: #000;
+        }
+        
+        .logout-subtitle {
+            font-size: 1.1rem;
+            color: #666;
+            margin-bottom: 2rem;
+        }
+        
+        .login-again-btn {
+            background-color: #000;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            padding: 0.75rem 2rem;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .login-again-btn:hover {
+            background-color: #333;
+        }
+        
+        .support-link {
+            display: block;
+            margin-top: 2rem;
+            color: #666;
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+        
+        .support-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="logout-container">
+        <div class="logout-card">
+            <h1 class="logout-title">You're Logged Out</h1>
+            <p class="logout-subtitle">Thank you for using 10x Prompt</p>
+            <a href="{{ url_for('login') }}" class="login-again-btn">Sign In Again</a>
+            <a href="mailto:10x-Prompt@pm.me" class="support-link">Need Support? Contact Us</a>
+        </div>
     </div>
-</div>
-{% endblock %} 
+</body>
+</html> 

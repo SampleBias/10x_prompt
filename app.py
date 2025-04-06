@@ -580,12 +580,11 @@ def after_request(response):
 
 @app.route('/logout')
 def logout():
+    # Clear user session
     session.clear()
-    params = {
-        'returnTo': url_for('login', _external=True),
-        'client_id': app.config['AUTH0_CLIENT_ID']
-    }
-    return redirect(auth0.api_base_url + '/v2/logout?' + urlencode(params))
+    
+    # Render logout template
+    return render_template('logout.html')
 
 @app.route('/enhance', methods=['POST'])
 @requires_auth

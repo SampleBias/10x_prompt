@@ -21,8 +21,15 @@
 <body>
     <div class="container">
         <header>
-            <h1>10x Prompt</h1>
-            <div class="subtitle">Transform simple prompts into powerful instructions</div>
+            <div class="header-content">
+                <div class="logo-section">
+                    <h1>10x Prompt</h1>
+                    <div class="subtitle">Transform simple prompts into powerful instructions</div>
+                </div>
+                <div class="user-controls">
+                    <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a>
+                </div>
+            </div>
         </header>
         
         <main class="main-content">
