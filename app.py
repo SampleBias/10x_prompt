@@ -46,11 +46,25 @@ app.config['SESSION_TYPE'] = 'redis'
 app.config['SESSION_PERMANENT'] = True
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
 app.config['SESSION_USE_SIGNER'] = True
-app.config['SESSION_KEY_PREFIX'] = 'prompt_enhancer:'
+app.config['SESSION_KEY_PREFIX'] = '10x_prompt:'
 
 # Get Redis URL from environment or use default for local development
-redis_url = os.environ.get('REDIS_URL', 'redis://localhost:6379')
-app.config['SESSION_REDIS'] = redis.from_url(redis_url)
+redis_url = os.environ.get('REDIS_URL')
+if redis_url:
+    # For Heroku environment - disable SSL certificate verification for Redis
+    logger.info(f"Using Redis URL from environment: {redis_url[:15]}...")
+    
+    # Configure Redis connection with SSL certificate verification disabled
+    redis_client = redis.from_url(
+        redis_url,
+        ssl_cert_reqs=None  # Disable certificate verification
+    )
+    app.config['SESSION_REDIS'] = redis_client
+else:
+    # Fallback to filesystem session for local development
+    logger.warning("No Redis URL found, using filesystem sessions for development")
+    app.config['SESSION_TYPE'] = 'filesystem'
+    app.config['SESSION_FILE_DIR'] = './flask_session'
 
 # Initialize Flask-Session
 Session(app)
