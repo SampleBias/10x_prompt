@@ -187,10 +187,25 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentPromptType = 'user'; // Default to user prompt
     let activeTemplate = null;
     
+    // Helper function to clear metadata containers
+    function clearMetadataContainers() {
+        const existingMetadataContainers = document.querySelectorAll('.metadata-container');
+        existingMetadataContainers.forEach(container => {
+            container.remove();
+        });
+    }
+    
     // Clear button functionality
     clearBtn.addEventListener('click', function() {
         promptInput.value = '';
         promptInput.focus();
+        
+        // Also clear the output and any metadata
+        outputContent.textContent = '';
+        outputContent.classList.remove('error');
+        
+        // Clear metadata containers
+        clearMetadataContainers();
     });
     
     // Set up prompt type toggle
@@ -304,6 +319,9 @@ document.addEventListener('DOMContentLoaded', function() {
         loadingIndicator.style.display = 'block';
         outputContent.textContent = '';
         outputContent.classList.remove('error');
+        
+        // Clear metadata containers
+        clearMetadataContainers();
         
         // Send request to the backend
         fetch('/enhance', {
