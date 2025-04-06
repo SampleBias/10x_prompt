@@ -146,27 +146,55 @@ def check_api_health(client, is_groq=True):
             logger.info(f"\n=== Starting {api_name} Health Check ===")
             # Use different models and prompts for each API
             if is_groq:
-                model = "distil-whisper-large-v3-en"
+                model = "llama-3.3-70b-versatile"  # Using the correct Groq model
                 logger.info(f"Using model: {model}")
+                logger.info(f"API URL: {GROQ_API_URL}")
+                logger.info(f"API Key configured: {'Yes' if GROQ_API_KEY else 'No'}")
+                logger.info(f"Client initialized: {'Yes' if client else 'No'}")
             else:
                 model = "deepseek-chat"
                 logger.info(f"Using model: {model}")
                 logger.info(f"API URL: {DEEPSEEK_API_URL}")
+                logger.info(f"API Key configured: {'Yes' if DEEPSEEK_API_KEY else 'No'}")
+                logger.info(f"Client initialized: {'Yes' if client else 'No'}")
+            
+            if not client:
+                raise APIError("API client not initialized")
             
             logger.info(f"Sending test request to {api_name} API...")
             
             # Then try the chat completion
             if is_groq:
-                response = client.chat.completions.create(
-                    messages=[
-                        {"role": "system", "content": "You are a helpful assistant."},
-                        {"role": "user", "content": "Hi"}
-                    ],
-                    model=model,
-                    max_tokens=10,
-                    temperature=1.0,  # Ensuring temperature > 0
-                    n=1  # Must be 1 for Groq
-                )
+                try:
+                    logger.info("Attempting Groq API request with parameters:")
+                    logger.info({
+                        "model": model,
+                        "messages": [
+                            {"role": "system", "content": "You are a helpful assistant."},
+                            {"role": "user", "content": "Hi"}
+                        ],
+                        "max_tokens": 10,
+                        "temperature": 1.0,
+                        "n": 1
+                    })
+                    response = client.chat.completions.create(
+                        messages=[
+                            {"role": "system", "content": "You are a helpful assistant."},
+                            {"role": "user", "content": "Hi"}
+                        ],
+                        model=model,
+                        max_tokens=10,
+                        temperature=1.0,  # Ensuring temperature > 0
+                        n=1  # Must be 1 for Groq
+                    )
+                except Exception as api_e:
+                    logger.error(f"Groq API request failed with error: {str(api_e)}")
+                    logger.error(f"Error type: {type(api_e).__name__}")
+                    if hasattr(api_e, 'response'):
+                        logger.error(f"Response status code: {getattr(api_e.response, 'status_code', 'N/A')}")
+                        logger.error(f"Response headers: {getattr(api_e.response, 'headers', {})}")
+                        logger.error(f"Response body: {getattr(api_e.response, 'text', 'N/A')}")
+                    raise
             else:
                 response = client.chat.completions.create(
                     model=model,
@@ -203,6 +231,7 @@ def check_api_health(client, is_groq=True):
             # Log detailed error information
             if hasattr(e, 'response'):
                 logger.error(f"Response Status: {getattr(e.response, 'status_code', 'N/A')}")
+                logger.error(f"Response Headers: {getattr(e.response, 'headers', {})}")
                 logger.error(f"Response Body: {getattr(e.response, 'text', 'N/A')}")
             
             # Update status on failure
@@ -272,13 +301,17 @@ def health_check():
 
 def initialize_groq_client():
     """Initialize the Groq client with proper error handling using OpenAI client"""
-    logger.info("Initializing Groq client...")
+    logger.info("\n=== Initializing Groq Client ===")
+    logger.info(f"GROQ_API_URL: {GROQ_API_URL}")
+    logger.info(f"API Key Present: {'Yes' if GROQ_API_KEY else 'No'}")
+    
     if not GROQ_API_KEY:
         logger.error("GROQ_API_KEY not found in environment variables")
         return None, "Groq API key not configured. Please check your environment variables."
     
     try:
         # Create client with Groq configuration using OpenAI client
+        logger.info("Creating Groq client with OpenAI configuration...")
         client = OpenAI(
             base_url="https://api.groq.com/openai/v1",
             api_key=GROQ_API_KEY,
@@ -291,21 +324,46 @@ def initialize_groq_client():
         logger.info("Testing Groq client connection...")
         try:
             # Test chat completion with supported parameters only
+            logger.info("Sending test request to Groq API...")
+            logger.info("Request parameters:")
+            logger.info({
+                "model": "llama-3.3-70b-versatile",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 10,
+                "temperature": 1.0,
+                "n": 1
+            })
+            
             response = client.chat.completions.create(
                 messages=[{"role": "user", "content": "Hi"}],
-                model="distil-whisper-large-v3-en",
+                model="llama-3.3-70b-versatile",
                 max_tokens=10,
                 temperature=1.0,  # Ensuring temperature > 0
                 n=1  # Must be 1 for Groq
             )
             logger.info("Successfully tested Groq connection")
+            logger.info(f"Response: {response}")
         except Exception as e:
-            logger.error(f"Failed to test Groq connection: {str(e)}")
+            logger.error("Failed to test Groq connection")
+            logger.error(f"Error type: {type(e).__name__}")
+            logger.error(f"Error message: {str(e)}")
+            if hasattr(e, 'response'):
+                logger.error(f"Response Status: {getattr(e.response, 'status_code', 'N/A')}")
+                logger.error(f"Response Headers: {getattr(e.response, 'headers', {})}")
+                logger.error(f"Response Body: {getattr(e.response, 'text', 'N/A')}")
+            raise
         
+        logger.info("=== Groq Client Initialization Complete ===\n")
         return client, None
     except Exception as e:
         error_msg = f"Failed to initialize Groq client: {str(e)}"
         logger.error(error_msg)
+        logger.error(f"Error type: {type(e).__name__}")
+        if hasattr(e, 'response'):
+            logger.error(f"Response Status: {getattr(e.response, 'status_code', 'N/A')}")
+            logger.error(f"Response Headers: {getattr(e.response, 'headers', {})}")
+            logger.error(f"Response Body: {getattr(e.response, 'text', 'N/A')}")
+        logger.error("=== Groq Client Initialization Failed ===\n")
         return None, error_msg
 
 def initialize_deepseek_client():
@@ -545,7 +603,7 @@ def enhance_prompt():
         
         def try_api_call(client, is_groq=True):
             try:
-                model = "distil-whisper-large-v3-en" if is_groq else "deepseek-chat"
+                model = "llama-3.3-70b-versatile" if is_groq else "deepseek-chat"
                 logger.info(f"Attempting request with {'Groq' if is_groq else 'DeepSeek'} API using model: {model}")
                 
                 if is_groq:
