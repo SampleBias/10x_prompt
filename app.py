@@ -6,7 +6,6 @@ import json
 import logging
 from dotenv import load_dotenv
 from openai import OpenAI
-from groq import Groq
 from authlib.integrations.flask_client import OAuth
 from functools import wraps
 import time
@@ -164,7 +163,9 @@ def check_api_health(client, is_groq=True):
                         {"role": "user", "content": "Hi"}
                     ],
                     model=model,
-                    max_tokens=10
+                    max_tokens=10,
+                    temperature=1.0,  # Ensuring temperature > 0
+                    n=1  # Must be 1 for Groq
                 )
             else:
                 response = client.chat.completions.create(
@@ -270,26 +271,32 @@ def health_check():
     return jsonify(response), status_code
 
 def initialize_groq_client():
-    """Initialize the Groq client with proper error handling"""
+    """Initialize the Groq client with proper error handling using OpenAI client"""
     logger.info("Initializing Groq client...")
     if not GROQ_API_KEY:
         logger.error("GROQ_API_KEY not found in environment variables")
         return None, "Groq API key not configured. Please check your environment variables."
     
     try:
-        # Create client with Groq configuration using the official Groq client
-        client = Groq(
+        # Create client with Groq configuration using OpenAI client
+        client = OpenAI(
+            base_url="https://api.groq.com/openai/v1",
             api_key=GROQ_API_KEY,
+            # Add reasonable timeout and max retries
+            timeout=60.0,
+            max_retries=2
         )
         
         # Test the client with a simple request
         logger.info("Testing Groq client connection...")
         try:
-            # Test chat completion
+            # Test chat completion with supported parameters only
             response = client.chat.completions.create(
                 messages=[{"role": "user", "content": "Hi"}],
                 model="distil-whisper-large-v3-en",
-                max_tokens=10
+                max_tokens=10,
+                temperature=1.0,  # Ensuring temperature > 0
+                n=1  # Must be 1 for Groq
             )
             logger.info("Successfully tested Groq connection")
         except Exception as e:
@@ -544,7 +551,9 @@ def enhance_prompt():
                 if is_groq:
                     response = client.chat.completions.create(
                         messages=messages,
-                        model=model
+                        model=model,
+                        temperature=1.0,  # Ensuring temperature > 0
+                        n=1  # Must be 1 for Groq
                     )
                 else:
                     response = client.chat.completions.create(
