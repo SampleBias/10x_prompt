@@ -370,13 +370,25 @@ def initialize_groq_client():
     try:
         # Create client with simpler Groq configuration
         logger.info("Creating Groq client with OpenAI configuration...")
-        client = OpenAI(
-            api_key=GROQ_API_KEY,
-            base_url="https://api.groq.com/openai/v1",
-            # Add reasonable timeout and max retries
-            timeout=30.0,
-            max_retries=1
-        )
+        try:
+            # First try with just the essential parameters
+            client = OpenAI(
+                api_key=GROQ_API_KEY,
+                base_url="https://api.groq.com/openai/v1"
+            )
+        except TypeError as e:
+            # Handle proxies argument error
+            if "unexpected keyword argument 'proxies'" in str(e):
+                logger.warning("Detected 'proxies' keyword argument error, trying again with only essential parameters")
+                # Try to import the module directly to bypass potential environment variables
+                from openai import OpenAI as DirectOpenAI
+                client = DirectOpenAI(
+                    api_key=GROQ_API_KEY,
+                    base_url="https://api.groq.com/openai/v1"
+                )
+            else:
+                # Re-raise if it's a different error
+                raise
         
         # Test the client with a simple request
         logger.info("Testing Groq client connection...")
