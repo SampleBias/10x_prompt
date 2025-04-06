@@ -146,7 +146,7 @@ def check_api_health(client, is_groq=True):
             logger.info(f"\n=== Starting {api_name} Health Check ===")
             # Use different models and prompts for each API
             if is_groq:
-                model = "llama2-70b-4096"
+                model = "distil-whisper-large-v3-en"
                 logger.info(f"Using model: {model}")
                 logger.info(f"API URL: {GROQ_API_URL}")
             else:
@@ -533,7 +533,7 @@ def enhance_prompt():
         
         def try_api_call(client, is_groq=True):
             try:
-                model = "llama2-70b-4096" if is_groq else "deepseek-chat"
+                model = "distil-whisper-large-v3-en" if is_groq else "deepseek-chat"
                 logger.info(f"Attempting request with {'Groq' if is_groq else 'DeepSeek'} API using model: {model}")
                 
                 response = client.chat.completions.create(
