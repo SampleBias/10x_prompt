@@ -43,13 +43,17 @@ app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PREFERRED_URL_SCHEME'] = 'https'
 app.config['SESSION_COOKIE_NAME'] = '10x_prompt_session'
 app.config['SESSION_COOKIE_DOMAIN'] = None  # Let Flask set this automatically
-app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1 hour
+app.config['PERMANENT_SESSION_LIFETIME'] = 86400  # 24 hours (increased from 1 hour)
 app.config['SESSION_TYPE'] = 'filesystem'  # Use filesystem session storage for better persistence
 app.config['SESSION_FILE_DIR'] = os.getenv('SESSION_FILE_DIR', '/tmp/flask_session')
 app.config['SESSION_USE_SIGNER'] = True
+app.config['SESSION_PERMANENT'] = True  # Make all sessions permanent by default
 
 # Initialize Flask-Session
 Session(app)
+
+# Track session creation and access times for debugging
+session_tracker = {}
 
 # Auth0 configuration
 app.config['AUTH0_CLIENT_ID'] = os.getenv('AUTH0_CLIENT_ID')
@@ -482,21 +486,32 @@ SYSTEM_PROMPT_OPTIMIZER = (
 def requires_auth(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        logger.info(f"Checking auth for path: {request.path}")
+        # Debug session info
+        logger.info(f"Auth check for path: {request.path}")
         logger.info(f"Current session data: {dict(session)}")
+        session_id = request.cookies.get(app.config['SESSION_COOKIE_NAME'])
+        logger.info(f"Session ID: {session_id or 'None'}")
         
-        if 'profile' not in session:
+        # Detailed check for authentication status
+        has_profile = 'profile' in session
+        has_user_id = has_profile and session.get('profile', {}).get('user_id')
+        
+        if not has_profile:
             logger.warning("No profile in session, redirecting to login")
             return redirect(url_for('login_page'))
             
-        # Verify session data is valid
-        profile = session.get('profile', {})
-        if not profile.get('user_id'):
-            logger.warning("Invalid profile data in session, redirecting to login")
+        if not has_user_id:
+            logger.warning("Invalid profile data in session (missing user_id), clearing session")
             session.clear()
+            session.modified = True
             return redirect(url_for('login_page'))
-            
-        logger.info(f"Auth successful for user: {profile.get('name', 'Unknown')}")
+        
+        # Log authentication success
+        logger.info(f"Auth successful for user: {session['profile'].get('name', 'Unknown')}")
+        
+        # Ensure session is marked as modified to prevent getting lost
+        session.modified = True
+        
         return f(*args, **kwargs)
     return decorated
 
@@ -517,14 +532,27 @@ def login_page():
     logger.info("User accessing login page")
     logger.info(f"Session state: {dict(session)}")
     
-    # Display login page
-    # This page will have a button that redirects to login_with_auth0
+    # If user is already logged in, redirect to the main application
+    if 'profile' in session and session.get('profile', {}).get('user_id'):
+        logger.info(f"User already authenticated: {session['profile'].get('name', 'Unknown')}")
+        return redirect(url_for('index'))
+    
+    # Display login page for unauthenticated users
     return render_template('login.html')
 
 @app.route('/auth')
 def login_with_auth0():
+    # Log the auth request
+    logger.info("Starting Auth0 authentication flow")
+    
     # Clear any existing session to prevent state mismatches
     session.clear()
+    
+    # Force session to be saved
+    session['auth_flow_started'] = True
+    session.modified = True
+    
+    # Redirect to Auth0 for authentication
     return auth0.authorize_redirect(redirect_uri=app.config['AUTH0_CALLBACK_URL'])
 
 @app.route('/callback')
@@ -542,6 +570,9 @@ def callback_handling():
         # Clear any existing session
         session.clear()
         
+        # Add session creation timestamp
+        session['created_at'] = int(time.time())
+        
         # Make session permanent and set cookie options
         session.permanent = True
         
@@ -556,14 +587,26 @@ def callback_handling():
         # Add a session test value
         session['test'] = 'test_value'
         
+        # Log session data before redirect
         logger.info("Session data set successfully")
         logger.info(f"Current session: {dict(session)}")
-        logger.info(f"Session ID: {request.cookies.get(app.config['SESSION_COOKIE_NAME'], 'None')}")
+        session_id = request.cookies.get(app.config['SESSION_COOKIE_NAME'])
+        logger.info(f"Session ID: {session_id or 'None'}")
         
-        # Force session save
+        # Force session save and mark as modified
         session.modified = True
         
-        return redirect(url_for('index'))
+        # Create a response to ensure cookie is set properly
+        response = make_response(redirect(url_for('index')))
+        
+        # Add cache control headers to the redirect response
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        
+        # Return the response
+        return response
+        
     except Exception as e:
         logger.error(f"Error in callback: {str(e)}")
         logger.error(f"Full error details: {e.__class__.__name__}: {str(e)}")
@@ -576,9 +619,23 @@ def before_request():
     logger.info(f"Request path: {request.path}")
     logger.info(f"Request method: {request.method}")
     logger.info(f"Request headers: {dict(request.headers)}")
+    
+    # Track session info for debugging
+    session_id = request.cookies.get(app.config['SESSION_COOKIE_NAME'])
+    if session_id:
+        if session_id not in session_tracker:
+            session_tracker[session_id] = {"created": time.time(), "access_count": 0}
+        session_tracker[session_id]["access_count"] += 1
+        session_tracker[session_id]["last_access"] = time.time()
+        logger.info(f"Session tracker data: {session_tracker[session_id]}")
+    
+    # Log detailed session info
     logger.info(f"Session contents: {session}")
-    logger.info(f"Session ID: {request.cookies.get(app.config['SESSION_COOKIE_NAME'], 'None')}")
+    logger.info(f"Session ID: {session_id or 'None'}")
+    
+    # Ensure session is always marked as modified to prevent staleness
     if 'profile' in session:
+        session.modified = True
         logger.info(f"User authenticated: {session['profile'].get('name', 'Unknown')}")
     else:
         logger.info("No user profile in session")
@@ -587,15 +644,34 @@ def before_request():
 def after_request(response):
     logger.info(f"Response status: {response.status_code}")
     logger.info(f"Response headers: {response.headers}")
+    
+    # Add cache control headers to prevent caching issues with session cookies
+    if 'text/html' in response.headers.get('Content-Type', ''):
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    
     return response
 
 @app.route('/logout')
 def logout():
-    # Clear user session
+    # Capture user info for logging before clearing
+    user_name = session.get('profile', {}).get('name', 'Unknown')
+    session_id = request.cookies.get(app.config['SESSION_COOKIE_NAME'], 'None')
+    
+    # Clear user session completely
     session.clear()
     
-    # Log the logout action
-    logger.info("User logged out successfully")
+    # Ensure session is marked as modified
+    session.modified = True
+    
+    # Log the logout action with user details
+    logger.info(f"User logged out: {user_name} (Session ID: {session_id})")
+    
+    # Remove this session from our tracker if it exists
+    if session_id in session_tracker:
+        logger.info(f"Removing session from tracker: {session_id}")
+        del session_tracker[session_id]
     
     # Render logout template
     return render_template('logout.html')
