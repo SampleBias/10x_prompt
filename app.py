@@ -368,29 +368,16 @@ def initialize_groq_client():
         return None, "Groq API key not configured. Please check your environment variables."
     
     try:
-        # Create client with only required parameters
-        logger.info("Creating Groq client with minimal parameters...")
+        # Try using the native Groq client instead of OpenAI
+        from groq import Groq
         
-        # Use a plain dictionary for parameters to avoid any environment variables being included
         params = {
             "api_key": GROQ_API_KEY,
-            "base_url": "https://api.groq.com/openai/v1"
+            "base_url": GROQ_API_URL,
+            "proxies": None  # Explicitly set proxies to None
         }
         
-        # Remove proxies from os.environ if present
-        if 'OPENAI_PROXIES' in os.environ:
-            logger.warning("Found OPENAI_PROXIES in environment, temporarily removing")
-            original_proxies = os.environ['OPENAI_PROXIES']
-            del os.environ['OPENAI_PROXIES']
-        else:
-            original_proxies = None
-            
-        # Create client directly
-        client = OpenAI(**params)
-        
-        # Restore environment variable if it was removed
-        if original_proxies:
-            os.environ['OPENAI_PROXIES'] = original_proxies
+        client = Groq(**params)
         
         # Test the client with a simple request
         logger.info("Testing Groq client connection...")
