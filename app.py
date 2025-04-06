@@ -117,7 +117,7 @@ else:
     logger.info("Running in development environment")
 
 # Model configuration
-PRIMARY_MODEL = "distil-whisper-large-v3-en"
+PRIMARY_MODEL = "mistral-saba-24b"
 FALLBACK_MODEL = "llama-3.1-8b-instant"
 DEEPSEEK_MODEL = "deepseek-chat"
 
