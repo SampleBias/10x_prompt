@@ -129,96 +129,146 @@ def login_page():
 
 @app.route('/login_with_auth0')
 def login_with_auth0():
-    # Generate a nonce for Auth0 to use
-    nonce = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
+    # Check if Auth0 is properly configured
+    if not AUTH0_DOMAIN or not AUTH0_CLIENT_ID:
+        logger.error("Auth0 configuration is incomplete - missing domain or client ID")
+        error_msg = "Authentication service is not properly configured. Please contact support."
+        return render_template('login.html', error=error_msg)
     
-    # Store the nonce in the session
-    session['auth0_nonce'] = nonce
-    session.modified = True
-    
-    # Construct the Auth0 authorization URL
-    params = {
-        'response_type': 'code',
-        'client_id': AUTH0_CLIENT_ID,
-        'redirect_uri': AUTH0_CALLBACK_URL,
-        'scope': 'openid profile email',
-        'audience': AUTH0_AUDIENCE,
-        'nonce': nonce,
-        'state': ''.join(random.choices(string.ascii_letters + string.digits, k=32))
-    }
-    
-    # Log the authorization attempt
-    logger.info(f"Redirecting to Auth0 for authentication with nonce: {nonce}")
-    
-    # Redirect the user to Auth0 for authentication
-    auth_url = f'{AUTH0_BASE_URL}/authorize?' + urlencode(params)
-    return redirect(auth_url)
+    try:
+        # Generate a nonce for Auth0 to use
+        nonce = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
+        
+        # Store the nonce in the session
+        session['auth0_nonce'] = nonce
+        session.modified = True
+        
+        # Log the Auth0 configuration
+        logger.info(f"Auth0 Configuration - Domain: {AUTH0_DOMAIN}")
+        
+        # Make sure the callback URL is properly set
+        callback_url = 'https://tenx-prompt-25322b7d0675.herokuapp.com/callback'
+        logger.info(f"Using callback URL: {callback_url}")
+        
+        # Construct the Auth0 authorization URL
+        params = {
+            'response_type': 'code',
+            'client_id': AUTH0_CLIENT_ID,
+            'redirect_uri': callback_url,
+            'scope': 'openid profile email',
+            'nonce': nonce,
+            'state': ''.join(random.choices(string.ascii_letters + string.digits, k=32))
+        }
+        
+        # Only add audience if it's configured
+        if AUTH0_AUDIENCE:
+            params['audience'] = AUTH0_AUDIENCE
+        
+        # Log the authorization attempt
+        logger.info(f"Redirecting to Auth0 for authentication with nonce: {nonce}")
+        
+        # Construct the Auth0 URL
+        auth_url = f'https://{AUTH0_DOMAIN}/authorize?' + urlencode(params)
+        logger.info(f"Auth0 URL: {auth_url}")
+        
+        # Redirect the user to Auth0 for authentication
+        return redirect(auth_url)
+        
+    except Exception as e:
+        logger.error(f"Error in Auth0 authentication flow: {str(e)}")
+        logger.error(traceback.format_exc())
+        error_msg = "Authentication error. Please try again later or contact support."
+        return render_template('login.html', error=error_msg)
 
 @app.route('/callback')
 def callback():
     # This route handles the callback from Auth0
-    # Get the authorization code from the callback
-    code = request.args.get('code')
-    
-    if not code:
-        logger.error("No authorization code received from Auth0")
-        return redirect(url_for('login_page'))
-    
-    # Exchange the authorization code for tokens
-    token_url = f'{AUTH0_BASE_URL}/oauth/token'
-    token_payload = {
-        'grant_type': 'authorization_code',
-        'client_id': AUTH0_CLIENT_ID,
-        'client_secret': AUTH0_CLIENT_SECRET,
-        'code': code,
-        'redirect_uri': AUTH0_CALLBACK_URL
-    }
-    
-    # Make the token exchange request
-    token_response = requests.post(token_url, json=token_payload)
-    
-    # Check if token exchange was successful
-    if token_response.status_code != 200:
-        logger.error(f"Failed to exchange code for tokens: {token_response.text}")
-        return redirect(url_for('login_page'))
-    
-    # Extract tokens from the response
-    tokens = token_response.json()
-    access_token = tokens.get('access_token')
-    id_token = tokens.get('id_token')
-    
-    # Use the access token to get user information
-    user_info_url = f'{AUTH0_BASE_URL}/userinfo'
-    user_info_response = requests.get(
-        user_info_url,
-        headers={'Authorization': f'Bearer {access_token}'}
-    )
-    
-    # Check if user info request was successful
-    if user_info_response.status_code != 200:
-        logger.error(f"Failed to get user info: {user_info_response.text}")
-        return redirect(url_for('login_page'))
-    
-    # Extract user information
-    user_info = user_info_response.json()
-    
-    # Store user information in the session
-    session['profile'] = {
-        'user_id': user_info.get('sub'),
-        'name': user_info.get('name', 'Unknown'),
-        'email': user_info.get('email', ''),
-        'picture': user_info.get('picture', ''),
-        'login_time': datetime.now().isoformat()
-    }
-    
-    # Force session to be saved
-    session.modified = True
-    
-    # Log successful authentication
-    logger.info(f"User authenticated successfully: {user_info.get('name')}")
-    
-    # Redirect to the main application
-    return redirect(url_for('index'))
+    try:
+        # Get the authorization code from the callback
+        code = request.args.get('code')
+        
+        if not code:
+            logger.error("No authorization code received from Auth0")
+            return render_template('login.html', error="Authentication failed. Please try again.")
+        
+        # Check if Auth0 is properly configured
+        if not AUTH0_DOMAIN or not AUTH0_CLIENT_ID or not AUTH0_CLIENT_SECRET:
+            logger.error("Auth0 configuration is incomplete for token exchange")
+            return render_template('login.html', error="Authentication service is not properly configured.")
+        
+        # Set the callback URL to match what's configured in Auth0
+        callback_url = 'https://tenx-prompt-25322b7d0675.herokuapp.com/callback'
+        
+        # Exchange the authorization code for tokens
+        token_url = f'https://{AUTH0_DOMAIN}/oauth/token'
+        token_payload = {
+            'grant_type': 'authorization_code',
+            'client_id': AUTH0_CLIENT_ID,
+            'client_secret': AUTH0_CLIENT_SECRET,
+            'code': code,
+            'redirect_uri': callback_url
+        }
+        
+        logger.info(f"Exchanging code for tokens with callback URL: {callback_url}")
+        
+        # Make the token exchange request
+        token_response = requests.post(token_url, json=token_payload)
+        
+        # Check if token exchange was successful
+        if token_response.status_code != 200:
+            logger.error(f"Failed to exchange code for tokens: {token_response.text}")
+            return render_template('login.html', error="Failed to complete authentication. Please try again.")
+        
+        # Extract tokens from the response
+        tokens = token_response.json()
+        access_token = tokens.get('access_token')
+        
+        if not access_token:
+            logger.error("No access token received from Auth0")
+            return render_template('login.html', error="Authentication failed. No access token received.")
+        
+        # Use the access token to get user information
+        user_info_url = f'https://{AUTH0_DOMAIN}/userinfo'
+        user_info_response = requests.get(
+            user_info_url,
+            headers={'Authorization': f'Bearer {access_token}'}
+        )
+        
+        # Check if user info request was successful
+        if user_info_response.status_code != 200:
+            logger.error(f"Failed to get user info: {user_info_response.text}")
+            return render_template('login.html', error="Failed to retrieve user information.")
+        
+        # Extract user information
+        user_info = user_info_response.json()
+        
+        # Ensure we have a user_id
+        if not user_info.get('sub'):
+            logger.error("No user ID (sub) in user info response")
+            return render_template('login.html', error="User identification failed.")
+        
+        # Store user information in the session
+        session['profile'] = {
+            'user_id': user_info.get('sub'),
+            'name': user_info.get('name', 'Unknown'),
+            'email': user_info.get('email', ''),
+            'picture': user_info.get('picture', ''),
+            'login_time': datetime.now().isoformat()
+        }
+        
+        # Force session to be saved
+        session.modified = True
+        
+        # Log successful authentication
+        logger.info(f"User authenticated successfully: {user_info.get('name')}")
+        
+        # Redirect to the main application
+        return redirect(url_for('index'))
+        
+    except Exception as e:
+        logger.error(f"Error in Auth0 callback: {str(e)}")
+        logger.error(traceback.format_exc())
+        return render_template('login.html', error="Authentication error. Please try again later.")
 
 @app.route('/logout')
 def logout():
@@ -235,12 +285,20 @@ def logout():
     # Log the logout action with user details
     logger.info(f"User logged out: {user_name} (Session ID: {session_id})")
     
+    # Get the Auth0 domain
+    if not AUTH0_DOMAIN or not AUTH0_CLIENT_ID:
+        logger.warning("Auth0 configuration incomplete, cannot redirect to Auth0 logout")
+        return redirect(url_for('login_page'))
+    
     # Construct the Auth0 logout URL
     params = {
-        'returnTo': url_for('login_page', _external=True),
+        'returnTo': 'https://tenx-prompt-25322b7d0675.herokuapp.com/login',
         'client_id': AUTH0_CLIENT_ID
     }
-    logout_url = f'{AUTH0_BASE_URL}/v2/logout?' + urlencode(params)
+    logout_url = f'https://{AUTH0_DOMAIN}/v2/logout?' + urlencode(params)
+    
+    # Log the logout URL
+    logger.info(f"Redirecting to Auth0 logout: {logout_url}")
     
     # Redirect to Auth0 logout endpoint
     return redirect(logout_url)
@@ -291,7 +349,7 @@ def enhance_prompt():
                 "token_count": len(enhanced_prompt.split())
             }
         })
-        
+                
     except Exception as e:
         logger.error(f"Error enhancing prompt: {str(e)}")
         logger.error(traceback.format_exc())
