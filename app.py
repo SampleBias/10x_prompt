@@ -35,7 +35,16 @@ app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1 hour
 app.config['AUTH0_CLIENT_ID'] = os.getenv('AUTH0_CLIENT_ID')
 app.config['AUTH0_CLIENT_SECRET'] = os.getenv('AUTH0_CLIENT_SECRET')
 app.config['AUTH0_DOMAIN'] = os.getenv('AUTH0_DOMAIN')
-app.config['AUTH0_CALLBACK_URL'] = os.getenv('AUTH0_CALLBACK_URL', 'https://tenx-prompt-25322b7d0675.herokuapp.com/callback')
+
+# Determine the environment and set the appropriate callback URL
+if os.getenv('HEROKU_APP_NAME'):
+    # We're on Heroku
+    app.config['AUTH0_CALLBACK_URL'] = f"https://{os.getenv('HEROKU_APP_NAME')}.herokuapp.com/callback"
+else:
+    # We're in development
+    app.config['AUTH0_CALLBACK_URL'] = os.getenv('AUTH0_CALLBACK_URL', 'http://localhost:5000/callback')
+
+logger.info(f"Using Auth0 callback URL: {app.config['AUTH0_CALLBACK_URL']}")
 
 oauth = OAuth(app)
 auth0 = oauth.register(
@@ -65,6 +74,19 @@ class APIError(Exception):
         self.status_code = status_code
         self.response = response
 
+class APIStatus:
+    """Track API status and last check time"""
+    def __init__(self, name):
+        self.name = name
+        self.is_healthy = False
+        self.last_check_time = None
+        self.last_error = None
+        self.consecutive_failures = 0
+
+# Global API status trackers
+groq_status = APIStatus("Groq")
+deepseek_status = APIStatus("DeepSeek")
+
 def retry_with_backoff(func, max_retries=3, initial_delay=1):
     """Retry a function with exponential backoff"""
     for attempt in range(max_retries):
@@ -79,6 +101,8 @@ def retry_with_backoff(func, max_retries=3, initial_delay=1):
 
 def check_api_health(client, is_groq=True):
     """Check if the API is responsive and working"""
+    status = groq_status if is_groq else deepseek_status
+    
     def health_check():
         try:
             model = "distil-whisper-large-v3-en" if is_groq else "deepseek-chat"
@@ -93,13 +117,82 @@ def check_api_health(client, is_groq=True):
             )
             if not hasattr(response, 'choices') or not response.choices:
                 raise APIError("API response missing choices")
-            logger.info(f"{'Groq' if is_groq else 'DeepSeek'} API health check: SUCCESS")
+            
+            # Update status on success
+            status.is_healthy = True
+            status.last_check_time = time.time()
+            status.last_error = None
+            status.consecutive_failures = 0
+            
+            logger.info(f"{status.name} API health check: SUCCESS")
             return True, None
         except Exception as e:
-            error_msg = f"{'Groq' if is_groq else 'DeepSeek'} API health check failed: {str(e)}"
+            error_msg = f"{status.name} API health check failed: {str(e)}"
             logger.error(error_msg)
+            
+            # Update status on failure
+            status.is_healthy = False
+            status.last_check_time = time.time()
+            status.last_error = str(e)
+            status.consecutive_failures += 1
+            
             return False, error_msg
     return health_check()
+
+def perform_health_checks():
+    """Perform health checks on both APIs"""
+    results = {
+        "groq": {"healthy": False, "error": None},
+        "deepseek": {"healthy": False, "error": None}
+    }
+    
+    # Check Groq
+    if groq_client is not None:
+        is_healthy, error = check_api_health(groq_client, True)
+        results["groq"]["healthy"] = is_healthy
+        results["groq"]["error"] = error
+    else:
+        results["groq"]["error"] = "Groq client not initialized"
+    
+    # Check DeepSeek
+    if deepseek_client is not None:
+        is_healthy, error = check_api_health(deepseek_client, False)
+        results["deepseek"]["healthy"] = is_healthy
+        results["deepseek"]["error"] = error
+    else:
+        results["deepseek"]["error"] = "DeepSeek client not initialized"
+    
+    return results
+
+@app.route('/health')
+def health_check():
+    """Health check endpoint for monitoring API status"""
+    results = perform_health_checks()
+    
+    # Determine overall status
+    all_healthy = all(api["healthy"] for api in results.values() if api["error"] != "Client not initialized")
+    status_code = 200 if all_healthy else 503
+    
+    response = {
+        "status": "healthy" if all_healthy else "degraded",
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
+        "apis": {
+            "groq": {
+                "status": "healthy" if results["groq"]["healthy"] else "unhealthy",
+                "last_check": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(groq_status.last_check_time)) if groq_status.last_check_time else None,
+                "consecutive_failures": groq_status.consecutive_failures,
+                "error": results["groq"]["error"]
+            },
+            "deepseek": {
+                "status": "healthy" if results["deepseek"]["healthy"] else "unhealthy",
+                "last_check": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(deepseek_status.last_check_time)) if deepseek_status.last_check_time else None,
+                "consecutive_failures": deepseek_status.consecutive_failures,
+                "error": results["deepseek"]["error"]
+            }
+        }
+    }
+    
+    return jsonify(response), status_code
 
 def initialize_groq_client():
     """Initialize the Groq client with proper error handling"""
@@ -145,14 +238,56 @@ def initialize_deepseek_client():
 groq_client, groq_error = initialize_groq_client()
 deepseek_client, deepseek_error = initialize_deepseek_client()
 
+# Startup Health Check and Logging
+logger.info("=== Starting Application Health Check ===")
+logger.info("Checking API clients initialization status:")
+
 if groq_client is None:
-    logger.error(f"Failed to initialize Groq client: {groq_error}")
+    logger.error(f"❌ Groq client initialization failed: {groq_error}")
     if deepseek_client is None:
-        logger.error("Both Groq and DeepSeek clients failed to initialize")
+        logger.error("❌ DeepSeek client initialization failed: {deepseek_error}")
+        logger.error("⚠️ WARNING: Both API clients failed to initialize")
     else:
-        logger.info("Using DeepSeek as fallback")
+        logger.info("✓ DeepSeek client initialized successfully")
+        logger.info("ℹ️ Using DeepSeek as primary due to Groq initialization failure")
 else:
-    logger.info("Successfully initialized Groq client")
+    logger.info("✓ Groq client initialized successfully")
+    if deepseek_client is not None:
+        logger.info("✓ DeepSeek client initialized successfully (fallback ready)")
+    else:
+        logger.warning("⚠️ DeepSeek client failed to initialize, no fallback available")
+
+# Perform initial health checks
+startup_health = perform_health_checks()
+logger.info("\n=== Initial API Health Check Results ===")
+
+# Log Groq health status
+if "groq" in startup_health:
+    if startup_health["groq"]["healthy"]:
+        logger.info("✓ Groq API Health Check: PASSED")
+    else:
+        logger.error(f"❌ Groq API Health Check: FAILED - {startup_health['groq']['error']}")
+
+# Log DeepSeek health status
+if "deepseek" in startup_health:
+    if startup_health["deepseek"]["healthy"]:
+        logger.info("✓ DeepSeek API Health Check: PASSED")
+    else:
+        logger.error(f"❌ DeepSeek API Health Check: FAILED - {startup_health['deepseek']['error']}")
+
+# Log overall system status
+healthy_apis = [api for api, status in startup_health.items() if status["healthy"]]
+logger.info("\n=== System Status Summary ===")
+logger.info(f"Total APIs available: {len(startup_health)}")
+logger.info(f"Healthy APIs: {len(healthy_apis)}")
+if len(healthy_apis) == 0:
+    logger.critical("⚠️ CRITICAL: No healthy APIs available!")
+elif len(healthy_apis) < len(startup_health):
+    logger.warning("⚠️ WARNING: Some APIs are unhealthy")
+else:
+    logger.info("✓ All APIs are healthy")
+
+logger.info("=== Health Check Complete ===\n")
 
 # System prompts for different prompt types
 USER_PROMPT_OPTIMIZER = (
@@ -281,6 +416,18 @@ def logout():
 @requires_auth
 def enhance_prompt():
     try:
+        # Check API health before processing
+        api_health = perform_health_checks()
+        
+        # Log API health status
+        logger.info("API Health Status:")
+        logger.info(f"Groq: {'healthy' if api_health['groq']['healthy'] else 'unhealthy'}")
+        logger.info(f"DeepSeek: {'healthy' if api_health['deepseek']['healthy'] else 'unhealthy'}")
+        
+        if not api_health["groq"]["healthy"] and not api_health["deepseek"]["healthy"]:
+            logger.error("Both APIs are unhealthy")
+            return jsonify({"error": "All APIs are currently unavailable"}), 503
+        
         data = request.json
         if not data:
             logger.warning("No JSON data received")
@@ -316,36 +463,55 @@ def enhance_prompt():
                 if not hasattr(response, 'choices') or not response.choices:
                     raise APIError("Invalid API response format")
                 
+                # Update health status on successful call
+                status = groq_status if is_groq else deepseek_status
+                status.is_healthy = True
+                status.last_check_time = time.time()
+                status.consecutive_failures = 0
+                
                 return response.choices[0].message.content
             except Exception as e:
                 logger.error(f"{'Groq' if is_groq else 'DeepSeek'} API call failed: {str(e)}")
+                # Update health status on failed call
+                status = groq_status if is_groq else deepseek_status
+                status.is_healthy = False
+                status.last_check_time = time.time()
+                status.last_error = str(e)
+                status.consecutive_failures += 1
                 raise
 
-        # Try Groq first, fall back to DeepSeek if needed
+        # Try Groq first if it's healthy, otherwise try DeepSeek
         try:
-            if groq_client is not None:
+            if groq_client is not None and api_health["groq"]["healthy"]:
                 enhanced_prompt = try_api_call(groq_client, True)
                 logger.info("Successfully enhanced prompt using Groq API")
-            elif deepseek_client is not None:
+            elif deepseek_client is not None and api_health["deepseek"]["healthy"]:
                 enhanced_prompt = try_api_call(deepseek_client, False)
                 logger.info("Successfully enhanced prompt using DeepSeek API (fallback)")
             else:
-                return jsonify({"error": "No available API clients"}), 503
+                return jsonify({"error": "No healthy API clients available"}), 503
             
             return jsonify({"enhanced_prompt": enhanced_prompt})
             
         except Exception as e:
-            # If Groq fails and DeepSeek is available, try DeepSeek
-            if groq_client is not None and deepseek_client is not None:
+            # If primary API fails, try the other one if it's healthy
+            if (groq_client is not None and deepseek_client is not None and 
+                ((api_health["groq"]["healthy"] and not api_health["deepseek"]["healthy"]) or 
+                 (not api_health["groq"]["healthy"] and api_health["deepseek"]["healthy"]))):
                 try:
-                    enhanced_prompt = try_api_call(deepseek_client, False)
-                    logger.info("Successfully enhanced prompt using DeepSeek API (fallback)")
+                    # Try the other API
+                    if api_health["deepseek"]["healthy"]:
+                        enhanced_prompt = try_api_call(deepseek_client, False)
+                        logger.info("Successfully enhanced prompt using DeepSeek API (fallback)")
+                    else:
+                        enhanced_prompt = try_api_call(groq_client, True)
+                        logger.info("Successfully enhanced prompt using Groq API (fallback)")
                     return jsonify({"enhanced_prompt": enhanced_prompt})
                 except Exception as fallback_e:
-                    logger.error(f"Both APIs failed. Groq error: {str(e)}, DeepSeek error: {str(fallback_e)}")
+                    logger.error(f"Both APIs failed. Primary error: {str(e)}, Fallback error: {str(fallback_e)}")
                     return jsonify({"error": "All API attempts failed"}), 503
             else:
-                logger.error(f"API call failed and no fallback available: {str(e)}")
+                logger.error(f"API call failed and no healthy fallback available: {str(e)}")
                 return jsonify({"error": "API request failed"}), 503
                 
     except Exception as e:
