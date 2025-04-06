@@ -105,7 +105,15 @@ def check_api_health(client, is_groq=True):
     
     def health_check():
         try:
-            model = "distil-whisper-large-v3-en" if is_groq else "deepseek-chat"
+            # Use different models and prompts for each API
+            if is_groq:
+                model = "llama2-70b-4096"  # Updated to use a known Groq model
+                logger.info(f"Attempting Groq health check with model: {model}")
+            else:
+                model = "deepseek-chat"
+                logger.info(f"Attempting DeepSeek health check with model: {model}")
+            
+            logger.info(f"Making health check request to {status.name} API")
             response = client.chat.completions.create(
                 model=model,
                 messages=[
@@ -115,8 +123,15 @@ def check_api_health(client, is_groq=True):
                 max_tokens=10,
                 stream=False
             )
+            
+            # Log the raw response for debugging
+            logger.info(f"{status.name} API Response: {response}")
+            
             if not hasattr(response, 'choices') or not response.choices:
-                raise APIError("API response missing choices")
+                error_msg = "API response missing choices"
+                logger.error(f"{status.name} API health check failed: {error_msg}")
+                logger.error(f"Raw response: {response}")
+                raise APIError(error_msg)
             
             # Update status on success
             status.is_healthy = True
@@ -129,6 +144,11 @@ def check_api_health(client, is_groq=True):
         except Exception as e:
             error_msg = f"{status.name} API health check failed: {str(e)}"
             logger.error(error_msg)
+            
+            # Log detailed error information
+            if hasattr(e, 'response'):
+                logger.error(f"Response Status: {getattr(e.response, 'status_code', 'N/A')}")
+                logger.error(f"Response Body: {getattr(e.response, 'text', 'N/A')}")
             
             # Update status on failure
             status.is_healthy = False
@@ -208,6 +228,12 @@ def initialize_groq_client():
             timeout=60.0,
             max_retries=2
         )
+        
+        # Log configuration for debugging
+        logger.info("Groq client configuration:")
+        logger.info(f"Base URL: {GROQ_API_URL}")
+        logger.info("API Key: [REDACTED]")
+        
         return client, None
     except Exception as e:
         error_msg = f"Failed to initialize Groq client: {str(e)}"
@@ -451,14 +477,17 @@ def enhance_prompt():
         
         def try_api_call(client, is_groq=True):
             try:
-                model = "distil-whisper-large-v3-en" if is_groq else "deepseek-chat"
-                logger.info(f"Attempting request with {'Groq' if is_groq else 'DeepSeek'} API")
+                model = "llama2-70b-4096" if is_groq else "deepseek-chat"
+                logger.info(f"Attempting request with {'Groq' if is_groq else 'DeepSeek'} API using model: {model}")
                 
                 response = client.chat.completions.create(
                     model=model,
                     messages=messages,
                     stream=False
                 )
+                
+                # Log the raw response for debugging
+                logger.info(f"API Response from {model}: {response}")
                 
                 if not hasattr(response, 'choices') or not response.choices:
                     raise APIError("Invalid API response format")
@@ -472,6 +501,11 @@ def enhance_prompt():
                 return response.choices[0].message.content
             except Exception as e:
                 logger.error(f"{'Groq' if is_groq else 'DeepSeek'} API call failed: {str(e)}")
+                # Log detailed error information
+                if hasattr(e, 'response'):
+                    logger.error(f"Response Status: {getattr(e.response, 'status_code', 'N/A')}")
+                    logger.error(f"Response Body: {getattr(e.response, 'text', 'N/A')}")
+                
                 # Update health status on failed call
                 status = groq_status if is_groq else deepseek_status
                 status.is_healthy = False
