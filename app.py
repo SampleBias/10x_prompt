@@ -129,13 +129,23 @@ def login_page():
 
 @app.route('/login_with_auth0')
 def login_with_auth0():
-    # Check if Auth0 is properly configured
-    if not AUTH0_DOMAIN or not AUTH0_CLIENT_ID:
-        logger.error("Auth0 configuration is incomplete - missing domain or client ID")
-        error_msg = "Authentication service is not properly configured. Please contact support."
-        return render_template('login.html', error=error_msg)
-    
+    # Detailed error handling for Auth0 initialization
     try:
+        # Log detailed auth0 configuration for debugging
+        logger.info("Auth0 login attempt - checking configuration")
+        logger.info(f"AUTH0_DOMAIN: {AUTH0_DOMAIN or 'Not set'}")
+        logger.info(f"AUTH0_CLIENT_ID: {'Set' if AUTH0_CLIENT_ID else 'Not set'}")
+        logger.info(f"AUTH0_CLIENT_SECRET: {'Set' if AUTH0_CLIENT_SECRET else 'Not set'}")
+        
+        # Check if Auth0 is properly configured
+        if not AUTH0_DOMAIN:
+            logger.error("AUTH0_DOMAIN is not configured")
+            return render_template('login.html', error="Authentication service configuration error: Missing domain")
+            
+        if not AUTH0_CLIENT_ID:
+            logger.error("AUTH0_CLIENT_ID is not configured")
+            return render_template('login.html', error="Authentication service configuration error: Missing client ID")
+        
         # Generate a nonce for Auth0 to use
         nonce = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
         
@@ -143,10 +153,7 @@ def login_with_auth0():
         session['auth0_nonce'] = nonce
         session.modified = True
         
-        # Log the Auth0 configuration
-        logger.info(f"Auth0 Configuration - Domain: {AUTH0_DOMAIN}")
-        
-        # Make sure the callback URL is properly set
+        # Hardcoded callback URL as specified in Auth0 settings
         callback_url = 'https://tenx-prompt-25322b7d0675.herokuapp.com/callback'
         logger.info(f"Using callback URL: {callback_url}")
         
@@ -177,8 +184,7 @@ def login_with_auth0():
     except Exception as e:
         logger.error(f"Error in Auth0 authentication flow: {str(e)}")
         logger.error(traceback.format_exc())
-        error_msg = "Authentication error. Please try again later or contact support."
-        return render_template('login.html', error=error_msg)
+        return render_template('login.html', error=f"Authentication error: {str(e)}")
 
 @app.route('/callback')
 def callback():
