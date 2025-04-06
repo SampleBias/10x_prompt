@@ -368,27 +368,29 @@ def initialize_groq_client():
         return None, "Groq API key not configured. Please check your environment variables."
     
     try:
-        # Create client with simpler Groq configuration
-        logger.info("Creating Groq client with OpenAI configuration...")
-        try:
-            # First try with just the essential parameters
-            client = OpenAI(
-                api_key=GROQ_API_KEY,
-                base_url="https://api.groq.com/openai/v1"
-            )
-        except TypeError as e:
-            # Handle proxies argument error
-            if "unexpected keyword argument 'proxies'" in str(e):
-                logger.warning("Detected 'proxies' keyword argument error, trying again with only essential parameters")
-                # Try to import the module directly to bypass potential environment variables
-                from openai import OpenAI as DirectOpenAI
-                client = DirectOpenAI(
-                    api_key=GROQ_API_KEY,
-                    base_url="https://api.groq.com/openai/v1"
-                )
-            else:
-                # Re-raise if it's a different error
-                raise
+        # Create client with only required parameters
+        logger.info("Creating Groq client with minimal parameters...")
+        
+        # Use a plain dictionary for parameters to avoid any environment variables being included
+        params = {
+            "api_key": GROQ_API_KEY,
+            "base_url": "https://api.groq.com/openai/v1"
+        }
+        
+        # Remove proxies from os.environ if present
+        if 'OPENAI_PROXIES' in os.environ:
+            logger.warning("Found OPENAI_PROXIES in environment, temporarily removing")
+            original_proxies = os.environ['OPENAI_PROXIES']
+            del os.environ['OPENAI_PROXIES']
+        else:
+            original_proxies = None
+            
+        # Create client directly
+        client = OpenAI(**params)
+        
+        # Restore environment variable if it was removed
+        if original_proxies:
+            os.environ['OPENAI_PROXIES'] = original_proxies
         
         # Test the client with a simple request
         logger.info("Testing Groq client connection...")
