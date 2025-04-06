@@ -487,14 +487,14 @@ def requires_auth(f):
         
         if 'profile' not in session:
             logger.warning("No profile in session, redirecting to login")
-            return redirect(url_for('login'))
+            return redirect(url_for('login_page'))
             
         # Verify session data is valid
         profile = session.get('profile', {})
         if not profile.get('user_id'):
             logger.warning("Invalid profile data in session, redirecting to login")
             session.clear()
-            return redirect(url_for('login'))
+            return redirect(url_for('login_page'))
             
         logger.info(f"Auth successful for user: {profile.get('name', 'Unknown')}")
         return f(*args, **kwargs)
@@ -503,6 +503,7 @@ def requires_auth(f):
 @app.route('/')
 @requires_auth
 def index():
+    # User is authenticated (ensured by @requires_auth)
     response = make_response(render_template('index.html'))
     # Ensure proper cache headers
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
@@ -511,7 +512,17 @@ def index():
     return response
 
 @app.route('/login')
-def login():
+def login_page():
+    # Log the request to the login page
+    logger.info("User accessing login page")
+    logger.info(f"Session state: {dict(session)}")
+    
+    # Display login page
+    # This page will have a button that redirects to login_with_auth0
+    return render_template('login.html')
+
+@app.route('/auth')
+def login_with_auth0():
     # Clear any existing session to prevent state mismatches
     session.clear()
     return auth0.authorize_redirect(redirect_uri=app.config['AUTH0_CALLBACK_URL'])
@@ -558,7 +569,7 @@ def callback_handling():
         logger.error(f"Full error details: {e.__class__.__name__}: {str(e)}")
         logger.error(f"Request: {request.url}")
         logger.error(f"Request cookies: {request.cookies}")
-        return redirect(url_for('login'))
+        return redirect(url_for('login_page'))
 
 @app.before_request
 def before_request():
@@ -582,6 +593,9 @@ def after_request(response):
 def logout():
     # Clear user session
     session.clear()
+    
+    # Log the logout action
+    logger.info("User logged out successfully")
     
     # Render logout template
     return render_template('logout.html')
