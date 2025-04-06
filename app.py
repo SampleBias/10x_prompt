@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 import random
 import string
 import traceback
+import re
 
 # Configure logging for Heroku
 logging.basicConfig(
@@ -363,11 +364,23 @@ def enhance_prompt():
         if prompt_type == 'user':
             system_message = """You are an expert prompt engineer. Your task is to enhance user prompts to make them more effective, specific, and detailed. 
             Make the prompt clearer, add relevant context, improve structure, and ensure it will get better results from AI models.
-            Do not include explanations or commentary - just return the enhanced prompt itself."""
+            
+            IMPORTANT INSTRUCTION: Return ONLY the enhanced prompt text itself with absolutely no prefixes, explanations, or commentary.
+            DO NOT include phrases like "Here is the enhanced prompt:" or "Enhanced prompt:".
+            DO NOT use quotation marks around the prompt.
+            DO NOT explain what you did.
+            DO NOT add any text before or after the enhanced prompt.
+            Your entire response should be ONLY the enhanced prompt that the user can directly copy and paste."""
         else:  # system prompt
             system_message = """You are an expert prompt engineer. Your task is to enhance system prompts that are used to control AI assistant behavior.
             Improve the clarity, specificity, and effectiveness of the system prompt. Make it more detailed, address edge cases, and ensure consistent behavior.
-            Do not include explanations or commentary - just return the enhanced system prompt itself."""
+            
+            IMPORTANT INSTRUCTION: Return ONLY the enhanced prompt text itself with absolutely no prefixes, explanations, or commentary.
+            DO NOT include phrases like "Here is the enhanced prompt:" or "Enhanced prompt:".
+            DO NOT use quotation marks around the prompt.
+            DO NOT explain what you did.
+            DO NOT add any text before or after the enhanced prompt.
+            Your entire response should be ONLY the enhanced prompt that the user can directly copy and paste."""
         
         # Try to use Groq API first
         groq_api_key = os.environ.get('GROQ_API_KEY')
@@ -467,15 +480,15 @@ def enhance_prompt():
                     
                     # Add specificity and detail
                     if not any(word in prompt.lower() for word in ['specific', 'detailed', 'in-depth']):
-                        enhanced = f"I need a detailed and specific response for the following: {enhanced}"
+                        enhanced = f"Provide a detailed and specific response about: {enhanced}"
                     
                     # Add output format if none specified
                     if not any(word in prompt.lower() for word in ['format', 'structure', 'organize']):
-                        enhanced += "\n\nPlease structure your response in a clear, well-organized format with sections and bullet points where appropriate."
+                        enhanced += "\n\nStructure your response with clear sections and bullet points where appropriate."
                     
                     # Add clarity request
                     if not any(word in prompt.lower() for word in ['clear', 'easy to understand', 'simple language']):
-                        enhanced += "\n\nUse clear language and explain any technical terms or concepts."
+                        enhanced += "\n\nUse clear language and explain any technical terms."
                         
                     return enhanced
                     
@@ -485,7 +498,7 @@ def enhance_prompt():
                     
                     # Add edge case handling
                     if not any(word in prompt.lower() for word in ['edge case', 'exception', 'special case']):
-                        enhanced += "\n\nHandle edge cases thoughtfully and make reasonable assumptions when information is ambiguous or incomplete."
+                        enhanced += "\n\nHandle edge cases and make reasonable assumptions when information is ambiguous."
                     
                     # Add consistency requirement
                     if not any(word in prompt.lower() for word in ['consistent', 'coherent', 'maintain']):
@@ -507,6 +520,62 @@ def enhance_prompt():
             if error_message:
                 error_msg += f": {error_message}"
             return jsonify({"error": error_msg}), 500
+        
+        # Post-process to remove common prefixes and explanations
+        # List of prefixes to remove
+        prefixes_to_remove = [
+            "Here is the enhanced prompt:", "Enhanced prompt:", "Here's the enhanced prompt:",
+            "Here is your enhanced prompt:", "The enhanced prompt is:", "Enhanced version:",
+            "Here's your enhanced prompt:", "Improved prompt:", "Enhanced:", "Here you go:",
+            "Here is an enhanced version:", "Here's an enhanced version:", "Enhanced user prompt:",
+            "Enhanced system prompt:", "Improved version:", "Here's the improved prompt:",
+            "Here is the improved prompt:"
+        ]
+        
+        # Remove any of these prefixes (case insensitive)
+        for prefix in prefixes_to_remove:
+            if enhanced_prompt.lower().startswith(prefix.lower()):
+                # Remove the prefix and any whitespace after it
+                enhanced_prompt = enhanced_prompt[len(prefix):].lstrip()
+                logger.info(f"Removed prefix: '{prefix}' from response")
+                
+        # More advanced regex-based cleanup for prefixes followed by newlines or colons
+        # Try to detect and remove intro sentences that end with a colon followed by text
+        intro_pattern = r'^([^:]{5,100}?:)(\s+)(.+)$'
+        intro_match = re.match(intro_pattern, enhanced_prompt, re.DOTALL)
+        if intro_match:
+            # Check if the first part looks like an introduction
+            intro = intro_match.group(1).lower()
+            if any(keyword in intro for keyword in ['enhance', 'improve', 'here', 'prompt', 'version']):
+                enhanced_prompt = intro_match.group(3)
+                logger.info(f"Removed intro with regex: '{intro_match.group(1)}'")
+
+        # Remove surrounding quotes if present (single, double, or triple quotes)
+        if (enhanced_prompt.startswith('"') and enhanced_prompt.endswith('"')) or \
+           (enhanced_prompt.startswith("'") and enhanced_prompt.endswith("'")) or \
+           (enhanced_prompt.startswith('"""') and enhanced_prompt.endswith('"""')) or \
+           (enhanced_prompt.startswith("'''") and enhanced_prompt.endswith("'''")):
+            # Count the quote characters at the start and end
+            start_quotes = len(re.match(r'^[\'"]++', enhanced_prompt).group(0))
+            end_quotes = len(re.match(r'[\'"]++$', enhanced_prompt[::-1]).group(0))
+            enhanced_prompt = enhanced_prompt[start_quotes:-end_quotes]
+            logger.info(f"Removed {start_quotes} opening and {end_quotes} closing quotes")
+            
+        # Remove "```" code blocks that might wrap the response
+        if enhanced_prompt.startswith("```") and "```" in enhanced_prompt[3:]:
+            # Extract content between first ``` and last ```
+            first_marker = enhanced_prompt.find("```")
+            last_marker = enhanced_prompt.rfind("```")
+            
+            # Check if we have actual content between the markers
+            if last_marker > first_marker + 3:
+                content_start = enhanced_prompt.find("\n", first_marker) + 1
+                if content_start > 0 and content_start < last_marker:
+                    enhanced_prompt = enhanced_prompt[content_start:last_marker].strip()
+                    logger.info("Removed code block markers from response")
+        
+        # Strip any leading/trailing whitespace once more after all processing
+        enhanced_prompt = enhanced_prompt.strip()
         
         # Calculate time taken
         time_taken = time.time() - start_time
