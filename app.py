@@ -10,11 +10,24 @@ from authlib.integrations.flask_client import OAuth
 from functools import wraps
 import time
 from requests.exceptions import RequestException, Timeout, ConnectionError
+import sys
 
-# Configure logging
-logging.basicConfig(level=logging.INFO,
-                   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# Configure logging for Heroku
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)  # Ensure logs go to stdout for Heroku
+    ]
+)
 logger = logging.getLogger(__name__)
+
+# Force all loggers to use this configuration
+for log_name, log_obj in logging.Logger.manager.loggerDict.items():
+    if isinstance(log_obj, logging.Logger):
+        log_obj.handlers = []
+        log_obj.addHandler(logging.StreamHandler(sys.stdout))
+        log_obj.setLevel(logging.INFO)
 
 # Load environment variables
 load_dotenv()
@@ -99,21 +112,58 @@ def retry_with_backoff(func, max_retries=3, initial_delay=1):
             logger.warning(f"Attempt {attempt + 1} failed, retrying in {delay} seconds: {str(e)}")
             time.sleep(delay)
 
+def log_api_details():
+    """Log API configuration details"""
+    logger.info("=== API Configuration ===")
+    # Groq Configuration
+    if GROQ_API_KEY:
+        logger.info("Groq API Key: Configured")
+        logger.info(f"Groq API URL: {GROQ_API_URL}")
+        # Log first few characters of API key for verification (safely)
+        logger.info(f"Groq API Key Preview: {GROQ_API_KEY[:4]}...")
+    else:
+        logger.error("Groq API Key: Not configured")
+    
+    # DeepSeek Configuration
+    if DEEPSEEK_API_KEY:
+        logger.info("DeepSeek API Key: Configured")
+        logger.info(f"DeepSeek API URL: {DEEPSEEK_API_URL}")
+        logger.info(f"DeepSeek API Key Preview: {DEEPSEEK_API_KEY[:4]}...")
+    else:
+        logger.error("DeepSeek API Key: Not configured")
+
+# Call this right after loading environment variables
+load_dotenv()
+log_api_details()
+
 def check_api_health(client, is_groq=True):
     """Check if the API is responsive and working"""
     status = groq_status if is_groq else deepseek_status
+    api_name = "Groq" if is_groq else "DeepSeek"
     
     def health_check():
         try:
+            logger.info(f"\n=== Starting {api_name} Health Check ===")
             # Use different models and prompts for each API
             if is_groq:
-                model = "llama2-70b-4096"  # Updated to use a known Groq model
-                logger.info(f"Attempting Groq health check with model: {model}")
+                model = "llama2-70b-4096"
+                logger.info(f"Using model: {model}")
+                logger.info(f"API URL: {GROQ_API_URL}")
             else:
                 model = "deepseek-chat"
-                logger.info(f"Attempting DeepSeek health check with model: {model}")
+                logger.info(f"Using model: {model}")
+                logger.info(f"API URL: {DEEPSEEK_API_URL}")
             
-            logger.info(f"Making health check request to {status.name} API")
+            logger.info(f"Sending test request to {api_name} API...")
+            
+            # First, try to list models
+            try:
+                models = client.models.list()
+                logger.info(f"Available {api_name} models: {models}")
+            except Exception as e:
+                logger.error(f"Failed to list {api_name} models: {str(e)}")
+            
+            # Then try the chat completion
             response = client.chat.completions.create(
                 model=model,
                 messages=[
@@ -124,12 +174,11 @@ def check_api_health(client, is_groq=True):
                 stream=False
             )
             
-            # Log the raw response for debugging
-            logger.info(f"{status.name} API Response: {response}")
+            logger.info(f"{api_name} API Response: {response}")
             
             if not hasattr(response, 'choices') or not response.choices:
                 error_msg = "API response missing choices"
-                logger.error(f"{status.name} API health check failed: {error_msg}")
+                logger.error(f"{api_name} API health check failed: {error_msg}")
                 logger.error(f"Raw response: {response}")
                 raise APIError(error_msg)
             
@@ -139,11 +188,13 @@ def check_api_health(client, is_groq=True):
             status.last_error = None
             status.consecutive_failures = 0
             
-            logger.info(f"{status.name} API health check: SUCCESS")
+            logger.info(f"{api_name} API health check: SUCCESS")
+            logger.info(f"=== {api_name} Health Check Complete ===\n")
             return True, None
         except Exception as e:
-            error_msg = f"{status.name} API health check failed: {str(e)}"
+            error_msg = f"{api_name} API health check failed: {str(e)}"
             logger.error(error_msg)
+            logger.error(f"Full error details: {e.__class__.__name__}: {str(e)}")
             
             # Log detailed error information
             if hasattr(e, 'response'):
@@ -156,6 +207,7 @@ def check_api_health(client, is_groq=True):
             status.last_error = str(e)
             status.consecutive_failures += 1
             
+            logger.error(f"=== {api_name} Health Check Failed ===\n")
             return False, error_msg
     return health_check()
 
@@ -216,6 +268,7 @@ def health_check():
 
 def initialize_groq_client():
     """Initialize the Groq client with proper error handling"""
+    logger.info("Initializing Groq client...")
     if not GROQ_API_KEY:
         logger.error("GROQ_API_KEY not found in environment variables")
         return None, "Groq API key not configured. Please check your environment variables."
@@ -229,10 +282,13 @@ def initialize_groq_client():
             max_retries=2
         )
         
-        # Log configuration for debugging
-        logger.info("Groq client configuration:")
-        logger.info(f"Base URL: {GROQ_API_URL}")
-        logger.info("API Key: [REDACTED]")
+        # Test the client with a simple request
+        logger.info("Testing Groq client connection...")
+        try:
+            response = client.models.list()
+            logger.info(f"Available Groq models: {response}")
+        except Exception as e:
+            logger.error(f"Failed to list Groq models: {str(e)}")
         
         return client, None
     except Exception as e:
