@@ -12,6 +12,7 @@ import time
 from requests.exceptions import RequestException, Timeout, ConnectionError
 import sys
 from flask_session import Session  # Add Flask-Session import
+import redis
 
 # Configure logging for Heroku
 logging.basicConfig(
@@ -43,11 +44,23 @@ app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PREFERRED_URL_SCHEME'] = 'https'
 app.config['SESSION_COOKIE_NAME'] = '10x_prompt_session'
 app.config['SESSION_COOKIE_DOMAIN'] = None  # Let Flask set this automatically
-app.config['PERMANENT_SESSION_LIFETIME'] = 86400  # 24 hours (increased from 1 hour)
-app.config['SESSION_TYPE'] = 'filesystem'  # Use filesystem session storage for better persistence
-app.config['SESSION_FILE_DIR'] = os.getenv('SESSION_FILE_DIR', '/tmp/flask_session')
+app.config['PERMANENT_SESSION_LIFETIME'] = 86400  # 24 hours
+
+# Use Redis for session storage if available (Heroku Redis add-on)
+redis_url = os.getenv('REDIS_URL')
+if redis_url:
+    logger.info(f"Using Redis for session storage: {redis_url[:8]}...")
+    app.config['SESSION_TYPE'] = 'redis'
+    app.config['SESSION_REDIS'] = redis.from_url(redis_url)
+else:
+    # Fallback to filesystem for local development
+    logger.info("Using filesystem session storage (not recommended for production)")
+    app.config['SESSION_TYPE'] = 'filesystem'
+    app.config['SESSION_FILE_DIR'] = os.getenv('SESSION_FILE_DIR', '/tmp/flask_session')
+
 app.config['SESSION_USE_SIGNER'] = True
-app.config['SESSION_PERMANENT'] = True  # Make all sessions permanent by default
+app.config['SESSION_PERMANENT'] = True
+app.config['SESSION_KEY_PREFIX'] = '10x_prompt:'
 
 # Initialize Flask-Session
 Session(app)
