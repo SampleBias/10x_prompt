@@ -358,7 +358,7 @@ def health_check():
     return jsonify(response), status_code
 
 def initialize_groq_client():
-    """Initialize the Groq client with proper error handling using OpenAI client"""
+    """Initialize the Groq client with proper error handling using the native Groq client"""
     logger.info("\n=== Initializing Groq Client ===")
     logger.info(f"GROQ_API_URL: {GROQ_API_URL}")
     logger.info(f"API Key Present: {'Yes' if GROQ_API_KEY else 'No'}")
@@ -368,17 +368,12 @@ def initialize_groq_client():
         return None, "Groq API key not configured. Please check your environment variables."
     
     try:
-        # Define a clean client class that only accepts specific parameters
-        class CleanOpenAI(OpenAI):
-            def __init__(self, api_key, base_url):
-                super().__init__(api_key=api_key, base_url=base_url)
+        # Import Groq client directly
+        from groq import Groq
         
-        # Create client with Groq configuration
-        logger.info("Creating Groq client with clean parameters...")
-        client = CleanOpenAI(
-            api_key=GROQ_API_KEY,
-            base_url=GROQ_API_URL
-        )
+        # Create native Groq client with minimal parameters
+        logger.info("Creating native Groq client...")
+        client = Groq(api_key=GROQ_API_KEY)
         
         # Test the client with a simple request
         logger.info("Testing Groq client connection...")
@@ -437,24 +432,23 @@ def initialize_deepseek_client():
         logger.info(f"Using OpenAI {'1.x' if is_openai_v1 else '0.x'} API")
         
         try:
-            # Try modern OpenAI client method (1.x) with DeepSeek's documented URL format
-            logger.info("Attempting to initialize DeepSeek client with OpenAI 1.x API...")
-            # Use only required parameters to avoid compatibility issues
-            client = OpenAI(
+            # Define a clean client class that only accepts specific parameters
+            class CleanOpenAI(OpenAI):
+                def __init__(self, api_key, base_url):
+                    super().__init__(api_key=api_key, base_url=base_url)
+            
+            # Try modern OpenAI client method with minimal parameters
+            logger.info("Initializing DeepSeek with clean OpenAI client...")
+            client = CleanOpenAI(
                 api_key=DEEPSEEK_API_KEY,
                 base_url=DEEPSEEK_API_URL  # No /v1 suffix as per DeepSeek docs
             )
-            logger.info("DeepSeek client initialized successfully with OpenAI 1.x API")
+            logger.info("DeepSeek client initialized successfully with clean OpenAI client")
             return client, None
         except TypeError as e:
-            # Handle proxies argument error common in some environments
-            logger.warning(f"Modern client initialization failed: {str(e)}")
-            if "unexpected keyword argument 'proxies'" in str(e):
-                logger.warning("Detected 'proxies' keyword argument error, this is a known issue")
-                logger.warning("Consider downgrading OpenAI library to 0.28.0 for better compatibility")
-                return None, f"DeepSeek client initialization failed: {str(e)}"
+            logger.warning(f"Clean client initialization failed: {str(e)}")
             
-            # Try direct configuration for pre-1.0 OpenAI
+            # Try direct configuration for pre-1.0 OpenAI as fallback
             if not is_openai_v1:
                 logger.info("Attempting direct configuration for OpenAI 0.x...")
                 openai.api_key = DEEPSEEK_API_KEY
