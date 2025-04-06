@@ -37,8 +37,8 @@ pip install -r requirements.txt
 2. Set up your environment variables in a .env file:
 
 ```
-DEEPSEEK_API_KEY=your_api_key_here
-API_URL=https://api.deepseek.com/v1
+GROQ_API_KEY=your_api_key_here
+GROQ_API_URL=https://api.groq.com/openai/v1
 ```
 
 3. Run the Flask application:
@@ -51,7 +51,7 @@ python app.py
 
 ## API Integration
 
-The application uses the DeepSeek-V3 API to enhance prompts. It leverages the OpenAI-compatible API interface that DeepSeek provides. The API integration follows the official DeepSeek documentation for using the "deepseek-chat" model, which accesses the latest DeepSeek-V3 model.
+The application uses the Groq API to enhance prompts. The primary model is "mistral-saba-24b" with "llama-3.1-8b-instant" as a fallback.
 
 To use a different LLM API, you'll need to modify the API_URL and model name in the application.
 
@@ -64,7 +64,7 @@ To use a different LLM API, you'll need to modify the API_URL and model name in 
 
 ## API Diagnostics
 
-If you're experiencing issues with the API not working correctly, you can use the diagnostic scripts to test the individual APIs:
+If you're experiencing issues with the API not working correctly, you can use the diagnostic scripts to test the API:
 
 ### Testing Groq API
 ```bash
@@ -72,15 +72,9 @@ If you're experiencing issues with the API not working correctly, you can use th
 python test_groq.py
 ```
 
-### Testing DeepSeek API
-```bash
-# Run the minimal DeepSeek API test
-python test_deepseek.py
-```
-
 ### Using the Full Diagnostic Tool
 ```bash
-# Run comprehensive diagnostics on both APIs
+# Run comprehensive diagnostics on the API
 python api_diagnostics.py
 ```
 
@@ -92,47 +86,16 @@ These scripts will help identify:
 
 ## Common Issues
 
-1. **API Keys Not Set**: Ensure both `GROQ_API_KEY` and `DEEPSEEK_API_KEY` are correctly set in your `.env` file
+1. **API Keys Not Set**: Ensure `GROQ_API_KEY` is correctly set in your `.env` file
 2. **Connection Issues**: Check network connectivity to API endpoints
 3. **Model Availability**: Some models may not be available or may have been renamed
 4. **Rate Limiting**: Check if you've exceeded your API rate limits
-
-## DeepSeek Compatibility Issues
-
-The DeepSeek API uses an OpenAI-compatible interface, but there are known compatibility issues with OpenAI SDK v1.x. If you encounter errors like:
-
-```
-TypeError: Client.__init__() got an unexpected keyword argument 'proxies'
-```
-
-This is because the DeepSeek API was designed for OpenAI SDK v0.28.0, but you're using a newer version.
-
-### Quick Fix
-
-We've included a helper script to downgrade your OpenAI SDK:
-
-```bash
-# Make the script executable
-chmod +x fix_deepseek.sh
-
-# Run the fix script
-./fix_deepseek.sh
-```
-
-This will downgrade your OpenAI client to v0.28.0, which is compatible with DeepSeek's API.
-
-### Alternative Solutions
-
-1. Use separate virtual environments for Groq and DeepSeek
-2. Contact DeepSeek support for updated integration examples that work with OpenAI SDK v1.x
-3. Use the compatibility mode in the app, which tries multiple initialization methods
 
 ## Environment Variables
 
 The application requires these environment variables:
 - `GROQ_API_KEY`: Your Groq API key
-- `DEEPSEEK_API_KEY`: Your DeepSeek API key
-- `DEEPSEEK_API_URL`: DeepSeek API endpoint (default: https://api.deepseek.com/v1)
+- `GROQ_API_URL`: Groq API endpoint (default: https://api.groq.com/openai/v1)
 
 ## Development
 
@@ -140,5 +103,5 @@ To run the application locally:
 
 1. Clone the repository
 2. Install dependencies: `pip install -r requirements.txt`
-3. Create a `.env` file with your API keys
+3. Create a `.env` file with your API key
 4. Run `flask run`

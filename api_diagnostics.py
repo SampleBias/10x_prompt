@@ -2,7 +2,7 @@
 """
 API Diagnostics Tool
 
-This standalone script tests Groq and DeepSeek APIs independently to diagnose 
+This standalone script tests the Groq API to diagnose 
 connection issues and provide detailed debugging information.
 """
 
@@ -29,8 +29,6 @@ load_dotenv()
 # API Configuration
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_API_URL = os.getenv("GROQ_API_URL", "https://api.groq.com/openai/v1")
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
-DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "https://api.deepseek.com")
 
 def print_separator():
     """Print a separator line for better log readability"""
@@ -168,185 +166,86 @@ def test_groq_with_openai():
         logger.error(f"❌ Failed to initialize OpenAI client for Groq: {type(e).__name__}: {str(e)}")
         return False
 
-def test_deepseek():
-    """Test DeepSeek API"""
-    print_separator()
-    logger.info("TESTING DEEPSEEK API")
-    print_separator()
-    
-    if not DEEPSEEK_API_KEY:
-        logger.error("❌ DEEPSEEK_API_KEY not found in environment variables")
-        return False
-    
-    logger.info(f"API Key (first 4 chars): {DEEPSEEK_API_KEY[:4]}...")
-    logger.info(f"API URL: {DEEPSEEK_API_URL}")
-    
-    # Check OpenAI version for debugging
-    import openai
-    logger.info(f"OpenAI version: {openai.__version__}")
-    
-    # Determine if we're using OpenAI 1.x or 0.x
-    is_openai_v1 = openai.__version__.startswith('1.')
-    logger.info(f"Using OpenAI {'1.x' if is_openai_v1 else '0.x'} API")
-    
-    if is_openai_v1:
-        # OpenAI 1.x API approach
-        try:
-            logger.info("Initializing with OpenAI 1.x client...")
-            from openai import OpenAI
-            
-            client = OpenAI(
-                api_key=DEEPSEEK_API_KEY,
-                base_url=DEEPSEEK_API_URL
-            )
-            logger.info("✅ Client initialized successfully with OpenAI 1.x API")
-            
-            for model in ["deepseek-chat", "deepseek-coder"]:
-                logger.info(f"\nTesting model: {model}")
-                try:
-                    logger.info("Sending test chat completion request...")
-                    start_time = time.time()
-                    
-                    response = client.chat.completions.create(
-                        model=model,
-                        messages=[{"role": "user", "content": "Say hello"}],
-                        max_tokens=5
-                    )
-                    
-                    duration = time.time() - start_time
-                    logger.info(f"✅ Response received in {duration:.2f}s")
-                    logger.info(f"Content: {response.choices[0].message.content}")
-                    return True
-                except Exception as e:
-                    logger.error(f"❌ Failed with model {model}: {type(e).__name__}: {str(e)}")
-                    if hasattr(e, 'response'):
-                        try:
-                            status = getattr(e.response, 'status_code', 'N/A')
-                            body = getattr(e.response, 'text', 'N/A')
-                            logger.error(f"Response Status: {status}")
-                            logger.error(f"Response Body: {body}")
-                        except:
-                            pass
-        except (ImportError, TypeError, Exception) as e:
-            logger.error(f"❌ Failed to initialize with OpenAI 1.x API: {type(e).__name__}: {str(e)}")
-    else:
-        # OpenAI 0.x API approach
-        try:
-            logger.info("Initializing with OpenAI 0.x API...")
-            
-            # Direct configuration for 0.x API
-            openai.api_key = DEEPSEEK_API_KEY
-            openai.api_base = DEEPSEEK_API_URL
-            
-            logger.info("✅ API configured successfully with OpenAI 0.x API")
-            
-            for model in ["deepseek-chat", "deepseek-coder"]:
-                logger.info(f"\nTesting model: {model}")
-                try:
-                    logger.info("Sending test chat completion request...")
-                    start_time = time.time()
-                    
-                    response = openai.ChatCompletion.create(
-                        model=model,
-                        messages=[{"role": "user", "content": "Say hello"}],
-                        max_tokens=5
-                    )
-                    
-                    duration = time.time() - start_time
-                    logger.info(f"✅ Response received in {duration:.2f}s")
-                    logger.info(f"Content: {response['choices'][0]['message']['content']}")
-                    return True
-                except Exception as e:
-                    logger.error(f"❌ Failed with model {model}: {type(e).__name__}: {str(e)}")
-                    if hasattr(e, 'response'):
-                        try:
-                            status = getattr(e.response, 'status_code', 'N/A')
-                            body = getattr(e.response, 'text', 'N/A')
-                            logger.error(f"Response Status: {status}")
-                            logger.error(f"Response Body: {body}")
-                        except:
-                            pass
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize with OpenAI 0.x API: {type(e).__name__}: {str(e)}")
-    
-    # If we reach here, it means all attempts failed
-    logger.error("❌ All DeepSeek API initialization attempts failed")
-    logger.warning("""
-    ⚠️ NOTE: If you're using OpenAI 1.x and having compatibility issues, you can:
-    1. Install openai==0.28.0 for compatibility with older code: pip install openai==0.28.0
-    2. Or update the application code to use the new OpenAI 1.x API
-    """)
-    return False
-
 def check_environment():
-    """Check environment variables and settings"""
+    """Check environment variables and dependencies"""
     print_separator()
-    logger.info("CHECKING ENVIRONMENT VARIABLES")
+    logger.info("CHECKING ENVIRONMENT")
     print_separator()
     
     # Check API keys
-    logger.info(f"GROQ_API_KEY set: {'Yes' if GROQ_API_KEY else 'No'}")
-    logger.info(f"DEEPSEEK_API_KEY set: {'Yes' if DEEPSEEK_API_KEY else 'No'}")
+    api_keys = {
+        "GROQ_API_KEY": GROQ_API_KEY
+    }
+    
+    for key, value in api_keys.items():
+        if value:
+            logger.info(f"✅ {key} is set (first 4 chars: {value[:4]}...)")
+        else:
+            logger.error(f"❌ {key} is not set")
     
     # Check Python version
-    logger.info(f"Python version: {sys.version}")
+    import platform
+    logger.info(f"Python Version: {platform.python_version()}")
     
-    # Check installed packages
+    # Check OpenAI version
     try:
-        import pkg_resources
-        logger.info("Installed packages:")
-        for pkg in ["openai", "groq", "flask-session", "requests"]:
-            try:
-                version = pkg_resources.get_distribution(pkg).version
-                logger.info(f"  - {pkg}: {version}")
-            except pkg_resources.DistributionNotFound:
-                logger.warning(f"  - {pkg}: Not installed")
+        import openai
+        logger.info(f"OpenAI Version: {openai.__version__}")
     except ImportError:
-        logger.warning("Could not check installed packages")
+        logger.error("❌ OpenAI package not installed")
     
-    # Check connectivity to API endpoints
-    import requests
-    endpoints = [
-        ("Groq API", "https://api.groq.com/health"),
-        ("DeepSeek API", "https://api.deepseek.com/")
-    ]
+    # Check Groq version
+    try:
+        import groq
+        logger.info(f"Groq Version: {groq.__version__}")
+    except ImportError:
+        logger.error("❌ Groq package not installed")
     
-    for name, url in endpoints:
-        try:
-            logger.info(f"Testing connectivity to {name} ({url})...")
-            start_time = time.time()
-            response = requests.get(url, timeout=5)
-            duration = time.time() - start_time
-            logger.info(f"  - Status: {response.status_code}")
-            logger.info(f"  - Response time: {duration:.2f}s")
-        except Exception as e:
-            logger.error(f"  - Failed to connect: {type(e).__name__}: {str(e)}")
+    # Check network connectivity
+    try:
+        import requests
+        response = requests.get("https://api.groq.com", timeout=5)
+        logger.info(f"✅ Can reach Groq API endpoint. Status: {response.status_code}")
+    except Exception as e:
+        logger.error(f"❌ Cannot reach Groq API endpoint: {str(e)}")
 
 def run_all_tests():
     """Run all diagnostic tests"""
     print_separator()
-    logger.info("STARTING API DIAGNOSTICS")
+    logger.info("RUNNING API DIAGNOSTICS")
     print_separator()
     
     # Check environment
     check_environment()
     
-    # Test Groq with SDK
+    # Test Groq API
     groq_sdk_success = test_groq_with_sdk()
+    if not groq_sdk_success:
+        groq_openai_success = test_groq_with_openai()
+    else:
+        groq_openai_success = True
+        logger.info("Skipping OpenAI client Groq test as SDK test was successful")
     
-    # Test Groq with OpenAI client
-    groq_openai_success = test_groq_with_openai()
-    
-    # Test DeepSeek
-    deepseek_success = test_deepseek()
-    
-    # Summary
+    # Results summary
     print_separator()
-    logger.info("DIAGNOSTICS SUMMARY")
+    logger.info("DIAGNOSTIC RESULTS SUMMARY")
     print_separator()
-    logger.info(f"Groq API (SDK): {'✅ SUCCESS' if groq_sdk_success else '❌ FAILED'}")
-    logger.info(f"Groq API (OpenAI client): {'✅ SUCCESS' if groq_openai_success else '❌ FAILED'}")
-    logger.info(f"DeepSeek API: {'✅ SUCCESS' if deepseek_success else '❌ FAILED'}")
+    
+    logger.info(f"Groq API with SDK: {'✅ PASSED' if groq_sdk_success else '❌ FAILED'}")
+    if not groq_sdk_success:
+        logger.info(f"Groq API with OpenAI client: {'✅ PASSED' if groq_openai_success else '❌ FAILED'}")
+    
+    # Overall status
+    groq_success = groq_sdk_success or groq_openai_success
+    
+    print_separator()
+    if groq_success:
+        logger.info("✅ API DIAGNOSTICS SUCCESSFUL: At least one API is operational")
+        logger.info("You can use the application normally.")
+    else:
+        logger.error("❌ API DIAGNOSTICS FAILED: No working API connections")
+        logger.error("Please check your API keys, network connectivity, and server status.")
+    print_separator()
 
 if __name__ == "__main__":
     run_all_tests() 
