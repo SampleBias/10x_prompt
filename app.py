@@ -6,6 +6,7 @@ import json
 import logging
 from dotenv import load_dotenv
 from openai import OpenAI
+from groq import Groq
 from authlib.integrations.flask_client import OAuth
 from functools import wraps
 import time
@@ -148,7 +149,6 @@ def check_api_health(client, is_groq=True):
             if is_groq:
                 model = "distil-whisper-large-v3-en"
                 logger.info(f"Using model: {model}")
-                logger.info(f"API URL: {GROQ_API_URL}")
             else:
                 model = "deepseek-chat"
                 logger.info(f"Using model: {model}")
@@ -156,23 +156,26 @@ def check_api_health(client, is_groq=True):
             
             logger.info(f"Sending test request to {api_name} API...")
             
-            # First, try to list models
-            try:
-                models = client.models.list()
-                logger.info(f"Available {api_name} models: {models}")
-            except Exception as e:
-                logger.error(f"Failed to list {api_name} models: {str(e)}")
-            
             # Then try the chat completion
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant."},
-                    {"role": "user", "content": "Hi"}
-                ],
-                max_tokens=10,
-                stream=False
-            )
+            if is_groq:
+                response = client.chat.completions.create(
+                    messages=[
+                        {"role": "system", "content": "You are a helpful assistant."},
+                        {"role": "user", "content": "Hi"}
+                    ],
+                    model=model,
+                    max_tokens=10
+                )
+            else:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": "You are a helpful assistant."},
+                        {"role": "user", "content": "Hi"}
+                    ],
+                    max_tokens=10,
+                    stream=False
+                )
             
             logger.info(f"{api_name} API Response: {response}")
             
@@ -274,21 +277,23 @@ def initialize_groq_client():
         return None, "Groq API key not configured. Please check your environment variables."
     
     try:
-        # Create client with Groq configuration
-        client = OpenAI(
+        # Create client with Groq configuration using the official Groq client
+        client = Groq(
             api_key=GROQ_API_KEY,
-            base_url=GROQ_API_URL,
-            timeout=60.0,
-            max_retries=2
         )
         
         # Test the client with a simple request
         logger.info("Testing Groq client connection...")
         try:
-            response = client.models.list()
-            logger.info(f"Available Groq models: {response}")
+            # Test chat completion
+            response = client.chat.completions.create(
+                messages=[{"role": "user", "content": "Hi"}],
+                model="distil-whisper-large-v3-en",
+                max_tokens=10
+            )
+            logger.info("Successfully tested Groq connection")
         except Exception as e:
-            logger.error(f"Failed to list Groq models: {str(e)}")
+            logger.error(f"Failed to test Groq connection: {str(e)}")
         
         return client, None
     except Exception as e:
@@ -536,11 +541,17 @@ def enhance_prompt():
                 model = "distil-whisper-large-v3-en" if is_groq else "deepseek-chat"
                 logger.info(f"Attempting request with {'Groq' if is_groq else 'DeepSeek'} API using model: {model}")
                 
-                response = client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    stream=False
-                )
+                if is_groq:
+                    response = client.chat.completions.create(
+                        messages=messages,
+                        model=model
+                    )
+                else:
+                    response = client.chat.completions.create(
+                        model=model,
+                        messages=messages,
+                        stream=False
+                    )
                 
                 # Log the raw response for debugging
                 logger.info(f"API Response from {model}: {response}")
