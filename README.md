@@ -61,3 +61,54 @@ To use a different LLM API, you'll need to modify the API_URL and model name in 
 - `templates/` - HTML templates
 - `static/` - CSS, JavaScript, and other static files
 - `requirements.txt` - Required Python packages
+
+## API Diagnostics
+
+If you're experiencing issues with the API not working correctly, you can use the diagnostic scripts to test the individual APIs:
+
+### Testing Groq API
+```bash
+# Run the minimal Groq API test
+python test_groq.py
+```
+
+### Testing DeepSeek API
+```bash
+# Run the minimal DeepSeek API test
+python test_deepseek.py
+```
+
+### Using the Full Diagnostic Tool
+```bash
+# Run comprehensive diagnostics on both APIs
+python api_diagnostics.py
+```
+
+These scripts will help identify:
+- If API keys are configured correctly
+- If API endpoints are accessible
+- If the models are available
+- Response times and error messages
+
+## Common Issues
+
+1. **API Keys Not Set**: Ensure both `GROQ_API_KEY` and `DEEPSEEK_API_KEY` are correctly set in your `.env` file
+2. **Connection Issues**: Check network connectivity to API endpoints
+3. **Model Availability**: Some models may not be available or may have been renamed
+4. **Rate Limiting**: Check if you've exceeded your API rate limits
+
+## Environment Variables
+
+The application requires these environment variables:
+- `GROQ_API_KEY`: Your Groq API key
+- `DEEPSEEK_API_KEY`: Your DeepSeek API key
+- `DEEPSEEK_API_URL`: DeepSeek API endpoint (default: https://api.deepseek.com/v1)
+
+## Development
+
+To run the application locally:
+
+1. Clone the repository
+2. Install dependencies: `pip install -r requirements.txt`
+3. Create a `.env` file with your API keys
+4. Run `flask run`
