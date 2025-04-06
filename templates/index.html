@@ -21,14 +21,20 @@
 <body>
     <div class="container">
         <header>
-            <div class="header-container">
-                <h1>10X Prompt Enhancer</h1>
-                <div class="user-info">
-                    {% if user %}
-                    <span>{{ user.username }}</span>
+            <div class="header-content">
+                <div class="logo-section">
+                    <h1>10x Prompt</h1>
+                    <div class="subtitle">Transform simple prompts into powerful instructions</div>
+                </div>
+                <div class="user-controls">
+                    {% if profile %}
+                    <div class="user-info">
+                        <img src="{{ profile.picture }}" alt="{{ profile.name }}" class="user-avatar">
+                        <span class="user-name">{{ profile.name }}</span>
+                    </div>
                     <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a>
                     {% else %}
-                    <a href="{{ url_for('login') }}" class="login-btn">Login</a>
+                    <a href="{{ url_for('login_page') }}" class="login-btn">Login</a>
                     {% endif %}
                 </div>
             </div>

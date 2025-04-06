@@ -61,642 +61,235 @@ SESSION_DURATION = int(os.environ.get('SESSION_DURATION', 86400))  # 24 hours in
 # Track session creation and access times for debugging
 session_tracker = {}
 
-# Auth0 configuration
-app.config['AUTH0_CLIENT_ID'] = os.getenv('AUTH0_CLIENT_ID')
-app.config['AUTH0_CLIENT_SECRET'] = os.getenv('AUTH0_CLIENT_SECRET')
-app.config['AUTH0_DOMAIN'] = os.getenv('AUTH0_DOMAIN')
-
-# Determine the environment and set the appropriate callback URL
-if os.getenv('HEROKU_APP_NAME'):
-    # We're on Heroku
-    app.config['AUTH0_CALLBACK_URL'] = f"https://{os.getenv('HEROKU_APP_NAME')}.herokuapp.com/callback"
-else:
-    # We're in development
-    app.config['AUTH0_CALLBACK_URL'] = os.getenv('AUTH0_CALLBACK_URL', 'http://localhost:5000/callback')
-
-logger.info(f"Using Auth0 callback URL: {app.config['AUTH0_CALLBACK_URL']}")
-
-oauth = OAuth(app)
-auth0 = oauth.register(
-    'auth0',
-    client_id=app.config['AUTH0_CLIENT_ID'],
-    client_secret=app.config['AUTH0_CLIENT_SECRET'],
-    api_base_url=f'https://{app.config["AUTH0_DOMAIN"]}',
-    access_token_url=f'https://{app.config["AUTH0_DOMAIN"]}/oauth/token',
-    authorize_url=f'https://{app.config["AUTH0_DOMAIN"]}/authorize',
-    client_kwargs={
-        'scope': 'openid profile email',
-        'response_type': 'code'
-    },
-    server_metadata_url=f'https://{app.config["AUTH0_DOMAIN"]}/.well-known/openid-configuration'
-)
-
-# API Configuration (with validation)
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-if not GROQ_API_KEY:
-    logger.error("GROQ_API_KEY environment variable is not set!")
-
-GROQ_API_URL = os.getenv("GROQ_API_URL", "https://api.groq.com/openai/v1")
-logger.info(f"Using Groq API URL: {GROQ_API_URL}")
-
-# Check for Heroku environment
-if os.getenv('HEROKU_APP_NAME'):
-    logger.info(f"Running on Heroku with app name: {os.getenv('HEROKU_APP_NAME')}")
-else:
-    logger.info("Running in development environment")
-
-# Model configuration
-PRIMARY_MODEL = "mistral-saba-24b"
-FALLBACK_MODEL = "llama-3.1-8b-instant"
-
-logger.info(f"Primary Groq model: {PRIMARY_MODEL}")
-logger.info(f"Fallback Groq model: {FALLBACK_MODEL}")
-
-class APIError(Exception):
-    """Custom exception for API-related errors"""
-    def __init__(self, message, status_code=None, response=None):
-        super().__init__(message)
-        self.status_code = status_code
-        self.response = response
-
-class APIStatus:
-    """Track API status and last check time"""
-    def __init__(self, name):
-        self.name = name
-        self.is_healthy = False
-        self.last_check_time = None
-        self.last_error = None
-        self.consecutive_failures = 0
-        
-        # For Groq with multiple models
-        if name == "Groq":
-            self.primary_healthy = False
-            self.primary_error = None
-            self.fallback_healthy = False
-            self.fallback_error = None
-
-# Global API status trackers
-groq_status = APIStatus("Groq")
-
-def retry_with_backoff(func, max_retries=3, initial_delay=1):
-    """Retry a function with exponential backoff"""
-    for attempt in range(max_retries):
-        try:
-            return func()
-        except Exception as e:
-            if attempt == max_retries - 1:  # Last attempt
-                raise  # Re-raise the last exception
-            delay = initial_delay * (2 ** attempt)  # Exponential backoff
-            logger.warning(f"Attempt {attempt + 1} failed, retrying in {delay} seconds: {str(e)}")
-            time.sleep(delay)
-
-def log_api_details():
-    """Log API configuration details"""
-    logger.info("\n=== API Configuration ===")
-    # Groq Configuration
-    if GROQ_API_KEY:
-        logger.info("Groq API Key: Configured")
-        logger.info(f"Groq API URL: {GROQ_API_URL}")
-        # Log first few characters of API key for verification (safely)
-        try:
-            logger.info(f"Groq API Key Preview: {GROQ_API_KEY[:4]}...")
-        except:
-            logger.error("Could not log Groq API key preview - key may be invalid")
-    else:
-        logger.error("Groq API Key: Not configured")
-    logger.info("=== End API Configuration ===\n")
-
-# Call this right after loading environment variables
-log_api_details()
-
-def check_api_health(client, is_groq=True, use_primary_model=True):
-    """Check if the API is responsive and working"""
-    status = groq_status
-    api_name = "Groq"
-    
-    def health_check():
-        try:
-            logger.info(f"\n=== Starting {api_name} Health Check ===")
-            
-            # Select appropriate Groq model
-            model = PRIMARY_MODEL if use_primary_model else FALLBACK_MODEL
-            logger.info(f"Using model: {model}")
-            logger.info(f"API URL: {GROQ_API_URL}")
-            logger.info(f"API Key configured: {'Yes' if GROQ_API_KEY else 'No'}")
-            logger.info(f"Client initialized: {'Yes' if client else 'No'}")
-            
-            if not client:
-                raise APIError("API client not initialized")
-            
-            logger.info(f"Sending test request to {api_name} API...")
-            start_time = time.time()
-            
-            # Create a simple test message
-            messages = [{"role": "user", "content": "Hello"}]
-            
-            # Groq client is consistent
-            response = client.chat.completions.create(
-                messages=messages,
-                model=model,
-                max_tokens=5  # Minimize token usage for health check
-            )
-            
-            elapsed_time = time.time() - start_time
-            logger.info(f"Request completed in {elapsed_time:.2f} seconds")
-            
-            # Log detailed response information
-            logger.info(f"Response type: {type(response)}")
-            
-            # Extract content based on response type
-            if hasattr(response, 'choices') and hasattr(response.choices[0], 'message'):
-                # Modern OpenAI response object
-                content = response.choices[0].message.content
-                logger.info(f"Content: {content}")
-            elif isinstance(response, dict) and 'choices' in response:
-                # Dictionary response from older OpenAI versions
-                content = response['choices'][0]['message']['content']
-                logger.info(f"Content: {content}")
-            else:
-                # Log full response for unexpected formats
-                logger.info(f"Full response: {response}")
-            
-            duration = elapsed_time
-            logger.info(f"{api_name} API is healthy with model {model} (response time: {duration:.2f}s)")
-            
-            # Update status
-            status.is_healthy = True
-            status.last_check_time = time.time()
-            status.consecutive_failures = 0
-            
-            # Update model-specific status for Groq
-            if is_groq:
-                if use_primary_model:
-                    status.primary_healthy = True
-                    status.primary_error = None
-                else:
-                    status.fallback_healthy = True
-                    status.fallback_error = None
-            
-            return True, None
-        
-        except Exception as e:
-            logger.error(f"Error during {api_name} health check: {str(e)}")
-            
-            # Update status
-            status.is_healthy = False
-            status.last_check_time = time.time()
-            status.last_error = str(e)
-            status.consecutive_failures += 1
-            
-            # Update model-specific status for Groq
-            if is_groq:
-                if use_primary_model:
-                    status.primary_healthy = False
-                    status.primary_error = str(e)
-                else:
-                    status.fallback_healthy = False
-                    status.fallback_error = str(e)
-            
-            return False, str(e)
-    
-    # Run the health check with retries
-    return retry_with_backoff(health_check)
-
-def perform_health_checks():
-    """Perform health checks for all APIs"""
-    results = {
-        "groq": {"healthy": False, "error": None}
-    }
-    
-    # Check Groq Primary
-    if groq_client is not None:
-        is_healthy, error = check_api_health(groq_client, True, True)
-        groq_status.primary_healthy = is_healthy
-        groq_status.primary_error = error
-        
-        results["groq"]["primary_healthy"] = is_healthy
-        results["groq"]["primary_error"] = error
-        
-        # If primary is healthy, overall Groq is healthy
-        if is_healthy:
-            results["groq"]["healthy"] = True
-        else:
-            # Try fallback
-            is_healthy, error = check_api_health(groq_client, True, False)
-            groq_status.fallback_healthy = is_healthy
-            groq_status.fallback_error = error
-            
-            results["groq"]["fallback_healthy"] = is_healthy
-            results["groq"]["fallback_error"] = error
-            
-            # If fallback is healthy, overall Groq is still healthy
-            if is_healthy:
-                results["groq"]["healthy"] = True
-            else:
-                results["groq"]["error"] = "Both primary and fallback models failed"
-    else:
-        results["groq"]["error"] = "Groq client not initialized"
-    
-    # Update health status objects
-    groq_status.is_healthy = results["groq"]["healthy"]
-    groq_status.last_check_time = time.time()
-    
-    if not results["groq"]["healthy"]:
-        groq_status.consecutive_failures += 1
-        groq_status.last_error = results["groq"]["error"]
-    else:
-        groq_status.consecutive_failures = 0
-        groq_status.last_error = None
-    
-    detailed_results = {
-        "groq": results["groq"]
-    }
-    
-    logger.info(f"Health check complete. Groq: {detailed_results['groq']['healthy']}")
-    
-    return detailed_results
-
-@app.route('/health')
-def health_check():
-    """API health check endpoint"""
-    try:
-        results = perform_health_checks()
-        
-        # Build response
-        response = {
-            "status": "healthy" if results["groq"]["healthy"] else "unhealthy",
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
-            "apis": {
-                "groq": {
-                    "status": "healthy" if results["groq"]["healthy"] else "unhealthy",
-                    "primary_model": PRIMARY_MODEL,
-                    "fallback_model": FALLBACK_MODEL,
-                    "primary_status": "healthy" if results["groq"].get("primary_healthy", False) else "unhealthy",
-                    "fallback_status": "healthy" if results["groq"].get("fallback_healthy", False) else "unhealthy",
-                    "last_check": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(groq_status.last_check_time)) if groq_status.last_check_time else None,
-                    "consecutive_failures": groq_status.consecutive_failures,
-                    "error": results["groq"]["error"]
-                }
-            }
-        }
-        
-        # Return with appropriate status code
-        is_healthy = results["groq"]["healthy"]
-        return jsonify(response), 200 if is_healthy else 503
-    except Exception as e:
-        logger.error(f"Error in health check: {str(e)}")
-        return jsonify({
-            "status": "error",
-            "message": f"Internal server error: {str(e)}",
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
-        }), 500
-
-def initialize_groq_client():
-    """Initialize the Groq client with proper error handling using the native Groq client"""
-    logger.info("\n=== Initializing Groq Client ===")
-    logger.info(f"GROQ_API_URL: {GROQ_API_URL}")
-    logger.info(f"API Key Present: {'Yes' if GROQ_API_KEY else 'No'}")
-    
-    if not GROQ_API_KEY:
-        logger.error("GROQ_API_KEY not found in environment variables")
-        return None, "Groq API key not configured. Please check your environment variables."
-    
-    try:
-        # Import Groq client directly
-        from groq import Groq
-        
-        # Create native Groq client with minimal parameters
-        logger.info("Creating native Groq client...")
-        client = Groq(api_key=GROQ_API_KEY)
-        
-        # Test the client with a simple request
-        logger.info("Testing Groq client connection...")
-        try:
-            # Test chat completion with minimal parameters
-            logger.info("Sending test request to Groq API...")
-            logger.info("Request parameters:")
-            logger.info({
-                "model": PRIMARY_MODEL,
-                "messages": [{"role": "user", "content": "Hi"}],
-                "max_tokens": 5
-            })
-            
-            response = client.chat.completions.create(
-                messages=[{"role": "user", "content": "Hi"}],
-                model=PRIMARY_MODEL,
-                max_tokens=5
-            )
-            logger.info("Successfully tested Groq connection")
-            logger.info(f"Response: {response}")
-        except Exception as e:
-            logger.error(f"Failed to test Groq with primary model: {str(e)}")
-            logger.error(f"Error type: {type(e).__name__}")
-            logger.error(f"Error message: {str(e)}")
-            
-            # Try fallback model
-            logger.info(f"Attempting with fallback model: {FALLBACK_MODEL}")
-            try:
-                response = client.chat.completions.create(
-                    messages=[{"role": "user", "content": "Hi"}],
-                    model=FALLBACK_MODEL,
-                    max_tokens=5
-                )
-                logger.info("Successfully tested Groq connection with fallback model")
-                logger.info(f"Response: {response}")
-            except Exception as e2:
-                logger.error("Failed to test Groq connection with fallback model")
-                logger.error(f"Error type: {type(e2).__name__}")
-                logger.error(f"Error message: {str(e2)}")
-                if hasattr(e2, 'response'):
-                    logger.error(f"Response Status: {getattr(e2.response, 'status_code', 'N/A')}")
-                    logger.error(f"Response Headers: {getattr(e2.response, 'headers', {})}")
-                    logger.error(f"Response Body: {getattr(e2.response, 'text', 'N/A')}")
-                # Don't raise the exception, return with error message
-                return None, f"Groq connection test failed: {str(e2)}"
-        
-        logger.info("=== Groq Client Initialization Complete ===\n")
-        return client, None
-    except Exception as e:
-        error_msg = f"Failed to initialize Groq client: {str(e)}"
-        logger.error(error_msg)
-        logger.error(f"Error type: {type(e).__name__}")
-        if hasattr(e, 'response'):
-            logger.error(f"Response Status: {getattr(e.response, 'status_code', 'N/A')}")
-            logger.error(f"Response Headers: {getattr(e.response, 'headers', {})}")
-            logger.error(f"Response Body: {getattr(e.response, 'text', 'N/A')}")
-        logger.error("=== Groq Client Initialization Failed ===\n")
-        return None, error_msg
-
-# Initialize groq client
-groq_client, groq_error = initialize_groq_client()
-
-# Startup Health Check and Logging
-logger.info("=== Starting Application Health Check ===")
-logger.info("Checking API clients initialization status:")
-
-if groq_client is None:
-    logger.error(f"❌ Groq client initialization failed: {groq_error}")
-    logger.error("⚠️ WARNING: API client failed to initialize")
-else:
-    logger.info("✓ Groq client initialized successfully")
-
-# Perform initial health checks
-startup_health = perform_health_checks()
-logger.info("\n=== Initial API Health Check Results ===")
-
-# Log Groq health status
-if "groq" in startup_health:
-    if startup_health["groq"]["healthy"]:
-        logger.info("✓ Groq API Health Check: PASSED")
-    else:
-        logger.error(f"❌ Groq API Health Check: FAILED - {startup_health['groq']['error']}")
-
-# Log overall system status
-healthy_apis = [api for api, status in startup_health.items() if status["healthy"]]
-logger.info("\n=== System Status Summary ===")
-logger.info(f"Total APIs available: {len(startup_health)}")
-logger.info(f"Healthy APIs: {len(healthy_apis)}")
-if len(healthy_apis) == 0:
-    logger.critical("⚠️ CRITICAL: No healthy APIs available!")
-else:
-    logger.info("✓ All APIs are healthy")
-
-logger.info("=== Health Check Complete ===\n")
-
-# System prompts for different prompt types
-USER_PROMPT_OPTIMIZER = (
-    'As an expert AI prompt engineer who knows how to interpret an average humans prompt and rewrite it in a '
-    'way that increases the probability of the model generating the most useful possible response to any specific '
-    'human prompt. In response to the user prompts, you do not respond as an AI assistant. You only respond with an '
-    'improved variation of the users prompt, with no explanations before or after the prompt of why it is better. Do '
-    'not generate anything but the expert prompt engineers modified version of the users prompt. If the prompt is in a '
-    'conversation with more than one human prompt, the whole conversation will be given as context for you to evaluate '
-    'how to construct the best possible response in that part of the conversation. Do not generate anything besides '
-    'the optimized prompt with no headers or explanations of the optimized prompt.'
-)
-
-SYSTEM_PROMPT_OPTIMIZER = (
-    'As an expert AI prompt engineer specialized in system prompt design, your task is to improve system prompts that '
-    'control AI behavior. System prompts are instructions that define how an AI assistant behaves, responds, and '
-    'processes information.\n\n'
-    'When given a basic system prompt, enhance it to be more effective by:\n'
-    '1. Making it more precise and specific\n'
-    '2. Ensuring consistency in tone and behavior\n'
-    '3. Adding necessary constraints or freedoms\n'
-    '4. Improving clarity and reducing ambiguity\n'
-    '5. Ensuring the instructions are comprehensive\n\n'
-    'Only respond with the enhanced system prompt. Do not include explanations, headers, or any other text. '
-    'Your response should be ready to copy and paste as a system prompt.'
-)
+# Auth0 Configuration
+AUTH0_DOMAIN = os.environ.get('AUTH0_DOMAIN')
+AUTH0_CLIENT_ID = os.environ.get('AUTH0_CLIENT_ID')
+AUTH0_CLIENT_SECRET = os.environ.get('AUTH0_CLIENT_SECRET')
+AUTH0_CALLBACK_URL = os.environ.get('AUTH0_CALLBACK_URL', 'http://localhost:5000/callback')
+AUTH0_AUDIENCE = os.environ.get('AUTH0_AUDIENCE')
+AUTH0_BASE_URL = f'https://{AUTH0_DOMAIN}'
 
 # Authentication decorator
 def requires_auth(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        # Check if user is logged in
-        if 'user' not in session or not session.get('user', {}).get('logged_in'):
-            logger.warning("Authentication required but user not logged in")
-            return redirect(url_for('login'))
+        # Debug session info
+        logger.info(f"Auth check for path: {request.path}")
+        logger.info(f"Current session data: {dict(session)}")
+        session_id = request.cookies.get(app.config['SESSION_COOKIE_NAME'])
+        logger.info(f"Session ID: {session_id or 'None'}")
         
-        # Force session to be saved
-        session.modified = True
+        # Detailed check for authentication status
+        has_profile = 'profile' in session
+        has_user_id = has_profile and session.get('profile', {}).get('user_id')
+        
+        if not has_profile:
+            logger.warning("No profile in session, redirecting to login")
+            return redirect(url_for('login_page'))
+        
+        if not has_user_id:
+            logger.warning("Invalid profile data in session (missing user_id), clearing session")
+            session.clear()
+            session.modified = True
+            return redirect(url_for('login_page'))
         
         # Log authentication success
-        logger.debug(f"User authenticated: {session.get('user', {}).get('username', 'Unknown')}")
+        logger.info(f"Auth successful for user: {session['profile'].get('name', 'Unknown')}")
+        
+        # Ensure session is marked as modified to prevent getting lost
+        session.modified = True
+        
         return f(*args, **kwargs)
     return decorated
 
 @app.route('/')
 @requires_auth
 def index():
-    return render_template('index.html', user=session.get('user', {}))
+    # User is authenticated (ensured by @requires_auth)
+    response = make_response(render_template('index.html', profile=session.get('profile', {})))
+    # Ensure proper cache headers
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
 
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        username = request.form.get('username', '').strip()
-        password = request.form.get('password', '')
-        
-        # Simple authentication (replace with a real auth system in production)
-        if username and password == os.environ.get('ADMIN_PASSWORD', 'admin'):
-            # Create a new session
-            session.clear()
-            
-            # Set session data
-            session['user'] = {
-                'username': username,
-                'logged_in': True,
-                'login_time': datetime.now().isoformat(),
-                'session_id': ''.join(random.choices(string.ascii_letters + string.digits, k=16))
-            }
-            
-            # Force the session to be saved immediately
-            session.modified = True
-            
-            logger.info(f"User '{username}' logged in successfully with session ID: {session['user']['session_id']}")
-            
-            return redirect(url_for('index'))
-        else:
-            flash('Invalid username or password')
-            return render_template('login.html', error='Invalid username or password')
+@app.route('/login')
+def login_page():
+    # Log the request to the login page
+    logger.info("User accessing login page")
+    logger.info(f"Session state: {dict(session)}")
     
+    # If user is already logged in, redirect to the main application
+    if 'profile' in session and session.get('profile', {}).get('user_id'):
+        logger.info(f"User already authenticated: {session['profile'].get('name', 'Unknown')}")
+        return redirect(url_for('index'))
+    
+    # Display login page for unauthenticated users
     return render_template('login.html')
 
-@app.route('/auth')
+@app.route('/login_with_auth0')
 def login_with_auth0():
-    # Log the auth request
-    logger.info("Starting Auth0 authentication flow")
+    # Generate a nonce for Auth0 to use
+    nonce = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
     
-    # Clear any existing session to prevent state mismatches
-    session.clear()
-    
-    # Force session to be saved
-    session['auth_flow_started'] = True
+    # Store the nonce in the session
+    session['auth0_nonce'] = nonce
     session.modified = True
     
-    # Redirect to Auth0 for authentication
-    return auth0.authorize_redirect(redirect_uri=app.config['AUTH0_CALLBACK_URL'])
+    # Construct the Auth0 authorization URL
+    params = {
+        'response_type': 'code',
+        'client_id': AUTH0_CLIENT_ID,
+        'redirect_uri': AUTH0_CALLBACK_URL,
+        'scope': 'openid profile email',
+        'audience': AUTH0_AUDIENCE,
+        'nonce': nonce,
+        'state': ''.join(random.choices(string.ascii_letters + string.digits, k=32))
+    }
+    
+    # Log the authorization attempt
+    logger.info(f"Redirecting to Auth0 for authentication with nonce: {nonce}")
+    
+    # Redirect the user to Auth0 for authentication
+    auth_url = f'{AUTH0_BASE_URL}/authorize?' + urlencode(params)
+    return redirect(auth_url)
 
 @app.route('/callback')
-def callback_handling():
-    try:
-        # Get the authorization code
-        token = auth0.authorize_access_token()
-        logger.info("Received access token from Auth0")
-        
-        # Get the user info
-        resp = auth0.get('userinfo')
-        userinfo = resp.json()
-        logger.info(f"Received user info from Auth0: {userinfo.get('name', 'Unknown')}")
-        
-        # Clear any existing session
-        session.clear()
-        
-        # Add session creation timestamp
-        session['created_at'] = int(time.time())
-        
-        # Make session permanent and set cookie options
-        session.permanent = True
-        
-        # Store user info in session
-        session['jwt_payload'] = userinfo
-        session['profile'] = {
-            'user_id': userinfo['sub'],
-            'name': userinfo.get('name', ''),
-            'picture': userinfo.get('picture', '')
-        }
-        
-        # Add a session test value
-        session['test'] = 'test_value'
-        
-        # Log session data before redirect
-        logger.info("Session data set successfully")
-        logger.info(f"Current session: {dict(session)}")
-        session_id = request.cookies.get(app.config['SESSION_COOKIE_NAME'])
-        logger.info(f"Session ID: {session_id or 'None'}")
-        
-        # Force session save and mark as modified
-        session.modified = True
-        
-        # Create a response to ensure cookie is set properly
-        response = make_response(redirect(url_for('index')))
-        
-        # Add cache control headers to the redirect response
-        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-        response.headers['Pragma'] = 'no-cache'
-        response.headers['Expires'] = '0'
-        
-        # Return the response
-        return response
-        
-    except Exception as e:
-        logger.error(f"Error in callback: {str(e)}")
-        logger.error(f"Full error details: {e.__class__.__name__}: {str(e)}")
-        logger.error(f"Request: {request.url}")
-        logger.error(f"Request cookies: {request.cookies}")
-        return redirect(url_for('login'))
-
-@app.before_request
-def before_request():
-    logger.info(f"Request path: {request.path}")
-    logger.info(f"Request method: {request.method}")
-    logger.info(f"Request headers: {dict(request.headers)}")
+def callback():
+    # This route handles the callback from Auth0
+    # Get the authorization code from the callback
+    code = request.args.get('code')
     
-    # Track session info for debugging
-    session_id = request.cookies.get(app.config['SESSION_COOKIE_NAME'])
-    if session_id:
-        if session_id not in session_tracker:
-            session_tracker[session_id] = {"created": time.time(), "access_count": 0}
-        session_tracker[session_id]["access_count"] += 1
-        session_tracker[session_id]["last_access"] = time.time()
-        logger.info(f"Session tracker data: {session_tracker[session_id]}")
+    if not code:
+        logger.error("No authorization code received from Auth0")
+        return redirect(url_for('login_page'))
     
-    # Log detailed session info
-    logger.info(f"Session contents: {session}")
-    logger.info(f"Session ID: {session_id or 'None'}")
+    # Exchange the authorization code for tokens
+    token_url = f'{AUTH0_BASE_URL}/oauth/token'
+    token_payload = {
+        'grant_type': 'authorization_code',
+        'client_id': AUTH0_CLIENT_ID,
+        'client_secret': AUTH0_CLIENT_SECRET,
+        'code': code,
+        'redirect_uri': AUTH0_CALLBACK_URL
+    }
     
-    # Ensure session is always marked as modified to prevent staleness
-    if 'profile' in session:
-        session.modified = True
-        logger.info(f"User authenticated: {session['profile'].get('name', 'Unknown')}")
-    else:
-        logger.info("No user profile in session")
-
-@app.after_request
-def after_request(response):
-    logger.info(f"Response status: {response.status_code}")
-    logger.info(f"Response headers: {response.headers}")
+    # Make the token exchange request
+    token_response = requests.post(token_url, json=token_payload)
     
-    # Add cache control headers to prevent caching issues with session cookies
-    if 'text/html' in response.headers.get('Content-Type', ''):
-        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-        response.headers['Pragma'] = 'no-cache'
-        response.headers['Expires'] = '0'
+    # Check if token exchange was successful
+    if token_response.status_code != 200:
+        logger.error(f"Failed to exchange code for tokens: {token_response.text}")
+        return redirect(url_for('login_page'))
     
-    return response
+    # Extract tokens from the response
+    tokens = token_response.json()
+    access_token = tokens.get('access_token')
+    id_token = tokens.get('id_token')
+    
+    # Use the access token to get user information
+    user_info_url = f'{AUTH0_BASE_URL}/userinfo'
+    user_info_response = requests.get(
+        user_info_url,
+        headers={'Authorization': f'Bearer {access_token}'}
+    )
+    
+    # Check if user info request was successful
+    if user_info_response.status_code != 200:
+        logger.error(f"Failed to get user info: {user_info_response.text}")
+        return redirect(url_for('login_page'))
+    
+    # Extract user information
+    user_info = user_info_response.json()
+    
+    # Store user information in the session
+    session['profile'] = {
+        'user_id': user_info.get('sub'),
+        'name': user_info.get('name', 'Unknown'),
+        'email': user_info.get('email', ''),
+        'picture': user_info.get('picture', ''),
+        'login_time': datetime.now().isoformat()
+    }
+    
+    # Force session to be saved
+    session.modified = True
+    
+    # Log successful authentication
+    logger.info(f"User authenticated successfully: {user_info.get('name')}")
+    
+    # Redirect to the main application
+    return redirect(url_for('index'))
 
 @app.route('/logout')
 def logout():
-    # Clear the session
+    # Capture user info for logging before clearing
+    user_name = session.get('profile', {}).get('name', 'Unknown')
+    session_id = request.cookies.get(app.config['SESSION_COOKIE_NAME'], 'None')
+    
+    # Clear user session completely
     session.clear()
     
-    # Log the logout
-    logger.info("User logged out")
+    # Ensure session is marked as modified
+    session.modified = True
     
-    # Redirect to login page
-    return redirect(url_for('login'))
+    # Log the logout action with user details
+    logger.info(f"User logged out: {user_name} (Session ID: {session_id})")
+    
+    # Construct the Auth0 logout URL
+    params = {
+        'returnTo': url_for('login_page', _external=True),
+        'client_id': AUTH0_CLIENT_ID
+    }
+    logout_url = f'{AUTH0_BASE_URL}/v2/logout?' + urlencode(params)
+    
+    # Redirect to Auth0 logout endpoint
+    return redirect(logout_url)
 
 @app.route('/enhance', methods=['POST'])
 @requires_auth
 def enhance_prompt():
-    # Force session modification at the beginning
-    session.modified = True
-    
-    # Log user making the request
-    logger.info(f"Enhance request from user: {session['user']['username']}")
-    
+    """Enhance a prompt using the selected API"""
     try:
-        # Get input data
-        data = request.json
-        prompt_text = data.get('prompt', '').strip()
-        prompt_type = data.get('type', 'default')
+        # Check session again inside the route
+        if 'profile' not in session or not session.get('profile', {}).get('user_id'):
+            logger.warning("Session lost between auth decorator and route function")
+            return jsonify({"error": "Authentication required", "code": "SESSION_LOST"}), 401
         
-        # Validate input
-        if not prompt_text:
-            return jsonify({'error': 'Please provide a prompt'}), 400
+        # Force session save at the beginning of the request
+        session.modified = True
         
-        logger.info(f"Enhancing prompt type: {prompt_type}")
+        # Extract data from request
+        data = request.get_json()
         
-        # Your prompt enhancement logic here
-        # For now, just returning a simple enhanced version
-        enhanced = f"Enhanced ({prompt_type}): {prompt_text}"
+        if not data:
+            return jsonify({"error": "No JSON data provided"}), 400
+            
+        input_prompt = data.get('prompt', '').strip()
+        prompt_type = data.get('type', 'user').lower()  # Default to user prompt
+        
+        if not input_prompt:
+            return jsonify({"error": "No prompt provided"}), 400
+            
+        # Log the user making the request
+        logger.info(f"Enhancement requested by: {session['profile'].get('name')} (User ID: {session['profile'].get('user_id')})")
         
         # For demo purposes, add some delay to simulate processing
         time.sleep(1)
         
+        # Return a simple enhanced version (placeholder for actual API integration)
+        enhanced_prompt = f"Enhanced ({prompt_type}): {input_prompt}"
+        
+        # Return the enhanced prompt
         return jsonify({
-            'enhanced_prompt': enhanced,
-            'type': prompt_type
+            "enhanced_prompt": enhanced_prompt,
+            "original_prompt": input_prompt,
+            "prompt_type": prompt_type,
+            "metadata": {
+                "provider": "Demo",
+                "model": "Mock-GPT",
+                "time_taken": 1.0,
+                "token_count": len(enhanced_prompt.split())
+            }
         })
         
     except Exception as e:
