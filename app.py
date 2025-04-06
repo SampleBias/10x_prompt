@@ -299,34 +299,36 @@ def enhance_prompt():
 
 @app.route('/system-health')
 def system_health():
-    """Detailed system health endpoint"""
-    results = perform_health_checks()
-    
-    # Build response
-    response = {
-        "status": "healthy" if results["groq"]["healthy"] else "unhealthy",
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
-        "apis": {
-            "groq": {
-                "status": "healthy" if results["groq"]["healthy"] else "unhealthy", 
-                "primary_model": PRIMARY_MODEL,
-                "fallback_model": FALLBACK_MODEL,
-                "primary_status": "healthy" if results["groq"].get("primary_healthy", False) else "unhealthy",
-                "fallback_status": "healthy" if results["groq"].get("fallback_healthy", False) else "unhealthy",
-                "last_check": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(groq_status.last_check_time)) if groq_status.last_check_time else None,
-                "consecutive_failures": groq_status.consecutive_failures,
-                "error": results["groq"]["error"]
+    """Endpoint to check system health including Redis connection"""
+    health = {
+        "status": "ok",
+        "timestamp": datetime.now().isoformat(),
+        "components": {
+            "redis": {
+                "status": "unknown"
+            },
+            "auth0": {
+                "configured": bool(AUTH0_DOMAIN and AUTH0_CLIENT_ID and AUTH0_CLIENT_SECRET)
+            },
+            "session": {
+                "type": app.config['SESSION_TYPE'],
+                "active": True
             }
-        },
-        "app_info": {
-            "version": os.getenv("APP_VERSION", "1.0.0"),
-            "environment": "production" if os.getenv('HEROKU_APP_NAME') else "development"
         }
     }
     
-    # Return with appropriate status code
-    is_healthy = results["groq"]["healthy"]
-    return jsonify(response), 200 if is_healthy else 503
+    # Check Redis connection if using Redis
+    if app.config['SESSION_TYPE'] == 'redis':
+        try:
+            redis_client = app.config['SESSION_REDIS']
+            redis_client.ping()
+            health["components"]["redis"]["status"] = "connected"
+        except Exception as e:
+            health["components"]["redis"]["status"] = "error"
+            health["components"]["redis"]["error"] = str(e)
+            health["status"] = "degraded"
+    
+    return jsonify(health)
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
