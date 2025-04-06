@@ -97,6 +97,36 @@ These scripts will help identify:
 3. **Model Availability**: Some models may not be available or may have been renamed
 4. **Rate Limiting**: Check if you've exceeded your API rate limits
 
+## DeepSeek Compatibility Issues
+
+The DeepSeek API uses an OpenAI-compatible interface, but there are known compatibility issues with OpenAI SDK v1.x. If you encounter errors like:
+
+```
+TypeError: Client.__init__() got an unexpected keyword argument 'proxies'
+```
+
+This is because the DeepSeek API was designed for OpenAI SDK v0.28.0, but you're using a newer version.
+
+### Quick Fix
+
+We've included a helper script to downgrade your OpenAI SDK:
+
+```bash
+# Make the script executable
+chmod +x fix_deepseek.sh
+
+# Run the fix script
+./fix_deepseek.sh
+```
+
+This will downgrade your OpenAI client to v0.28.0, which is compatible with DeepSeek's API.
+
+### Alternative Solutions
+
+1. Use separate virtual environments for Groq and DeepSeek
+2. Contact DeepSeek support for updated integration examples that work with OpenAI SDK v1.x
+3. Use the compatibility mode in the app, which tries multiple initialization methods
+
 ## Environment Variables
 
 The application requires these environment variables:

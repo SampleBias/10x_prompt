@@ -30,7 +30,7 @@ load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_API_URL = os.getenv("GROQ_API_URL", "https://api.groq.com/openai/v1")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
-DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "https://api.deepseek.com/v1")
+DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "https://api.deepseek.com")
 
 def print_separator():
     """Print a separator line for better log readability"""
@@ -181,55 +181,102 @@ def test_deepseek():
     logger.info(f"API Key (first 4 chars): {DEEPSEEK_API_KEY[:4]}...")
     logger.info(f"API URL: {DEEPSEEK_API_URL}")
     
-    try:
-        logger.info("Initializing OpenAI client for DeepSeek...")
-        client = OpenAI(
-            api_key=DEEPSEEK_API_KEY,
-            base_url=DEEPSEEK_API_URL,
-            timeout=30.0,
-            max_retries=1
-        )
-        
-        # Test with deepseek models
-        test_models = [
-            "deepseek-chat",
-            "deepseek-coder"
-        ]
-        
-        for model in test_models:
-            logger.info(f"\nTesting model: {model}")
-            try:
-                logger.info("Sending test chat completion request...")
-                start_time = time.time()
-                
-                response = client.chat.completions.create(
-                    model=model,
-                    messages=[{"role": "user", "content": "Say hello"}],
-                    max_tokens=5
-                )
-                
-                duration = time.time() - start_time
-                logger.info(f"✅ Response received in {duration:.2f}s")
-                logger.info(f"Response: {response}")
-                logger.info(f"Content: {response.choices[0].message.content}")
-                return True
-            except Exception as e:
-                logger.error(f"❌ Failed with model {model}: {type(e).__name__}: {str(e)}")
-                if hasattr(e, 'response'):
-                    try:
-                        status = getattr(e.response, 'status_code', 'N/A')
-                        headers = getattr(e.response, 'headers', {})
-                        body = getattr(e.response, 'text', 'N/A')
-                        logger.error(f"Response Status: {status}")
-                        logger.error(f"Response Headers: {headers}")
-                        logger.error(f"Response Body: {body}")
-                    except:
-                        pass
-        
-        return False
-    except Exception as e:
-        logger.error(f"❌ Failed to initialize OpenAI client for DeepSeek: {type(e).__name__}: {str(e)}")
-        return False
+    # Check OpenAI version for debugging
+    import openai
+    logger.info(f"OpenAI version: {openai.__version__}")
+    
+    # Determine if we're using OpenAI 1.x or 0.x
+    is_openai_v1 = openai.__version__.startswith('1.')
+    logger.info(f"Using OpenAI {'1.x' if is_openai_v1 else '0.x'} API")
+    
+    if is_openai_v1:
+        # OpenAI 1.x API approach
+        try:
+            logger.info("Initializing with OpenAI 1.x client...")
+            from openai import OpenAI
+            
+            client = OpenAI(
+                api_key=DEEPSEEK_API_KEY,
+                base_url=DEEPSEEK_API_URL
+            )
+            logger.info("✅ Client initialized successfully with OpenAI 1.x API")
+            
+            for model in ["deepseek-chat", "deepseek-coder"]:
+                logger.info(f"\nTesting model: {model}")
+                try:
+                    logger.info("Sending test chat completion request...")
+                    start_time = time.time()
+                    
+                    response = client.chat.completions.create(
+                        model=model,
+                        messages=[{"role": "user", "content": "Say hello"}],
+                        max_tokens=5
+                    )
+                    
+                    duration = time.time() - start_time
+                    logger.info(f"✅ Response received in {duration:.2f}s")
+                    logger.info(f"Content: {response.choices[0].message.content}")
+                    return True
+                except Exception as e:
+                    logger.error(f"❌ Failed with model {model}: {type(e).__name__}: {str(e)}")
+                    if hasattr(e, 'response'):
+                        try:
+                            status = getattr(e.response, 'status_code', 'N/A')
+                            body = getattr(e.response, 'text', 'N/A')
+                            logger.error(f"Response Status: {status}")
+                            logger.error(f"Response Body: {body}")
+                        except:
+                            pass
+        except (ImportError, TypeError, Exception) as e:
+            logger.error(f"❌ Failed to initialize with OpenAI 1.x API: {type(e).__name__}: {str(e)}")
+    else:
+        # OpenAI 0.x API approach
+        try:
+            logger.info("Initializing with OpenAI 0.x API...")
+            
+            # Direct configuration for 0.x API
+            openai.api_key = DEEPSEEK_API_KEY
+            openai.api_base = DEEPSEEK_API_URL
+            
+            logger.info("✅ API configured successfully with OpenAI 0.x API")
+            
+            for model in ["deepseek-chat", "deepseek-coder"]:
+                logger.info(f"\nTesting model: {model}")
+                try:
+                    logger.info("Sending test chat completion request...")
+                    start_time = time.time()
+                    
+                    response = openai.ChatCompletion.create(
+                        model=model,
+                        messages=[{"role": "user", "content": "Say hello"}],
+                        max_tokens=5
+                    )
+                    
+                    duration = time.time() - start_time
+                    logger.info(f"✅ Response received in {duration:.2f}s")
+                    logger.info(f"Content: {response['choices'][0]['message']['content']}")
+                    return True
+                except Exception as e:
+                    logger.error(f"❌ Failed with model {model}: {type(e).__name__}: {str(e)}")
+                    if hasattr(e, 'response'):
+                        try:
+                            status = getattr(e.response, 'status_code', 'N/A')
+                            body = getattr(e.response, 'text', 'N/A')
+                            logger.error(f"Response Status: {status}")
+                            logger.error(f"Response Body: {body}")
+                        except:
+                            pass
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize with OpenAI 0.x API: {type(e).__name__}: {str(e)}")
+    
+    # If we reach here, it means all attempts failed
+    logger.error("❌ All DeepSeek API initialization attempts failed")
+    logger.warning("""
+    ⚠️ NOTE: If you're using OpenAI 1.x and having compatibility issues, you can:
+    1. Install openai==0.28.0 for compatibility with older code: pip install openai==0.28.0
+    2. Or update the application code to use the new OpenAI 1.x API
+    """)
+    return False
 
 def check_environment():
     """Check environment variables and settings"""

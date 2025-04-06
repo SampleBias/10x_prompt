@@ -93,8 +93,22 @@ DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 if not DEEPSEEK_API_KEY:
     logger.error("DEEPSEEK_API_KEY environment variable is not set!")
 
-DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "https://api.deepseek.com/v1")
+DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "https://api.deepseek.com")
 logger.info(f"Using DeepSeek API URL: {DEEPSEEK_API_URL}")
+
+# Check for OpenAI version compatibility
+import openai
+openai_version = openai.__version__
+logger.info(f"Detected OpenAI version: {openai_version}")
+
+if openai_version.startswith("1."):
+    logger.warning("""
+    ⚠️ WARNING: You are using OpenAI SDK v1.x, which may have compatibility issues with DeepSeek API.
+    If you encounter 'proxies' parameter errors or other initialization issues with DeepSeek, consider:
+    
+    1. Downgrading to OpenAI SDK v0.28.0: pip install openai==0.28.0
+    2. Or request an updated integration example from DeepSeek support
+    """)
 
 # Check for Heroku environment
 if os.getenv('HEROKU_APP_NAME'):
@@ -192,85 +206,101 @@ def check_api_health(client, is_groq=True):
                 raise APIError("API client not initialized")
             
             logger.info(f"Sending test request to {api_name} API...")
+            start_time = time.time()
             
-            # Simplify the test request to minimize potential issues
-            if is_groq:
-                try:
-                    logger.info("Attempting Groq API request with simplified parameters:")
-                    logger.info({
-                        "model": model,
-                        "messages": [{"role": "user", "content": "hello"}],
-                        "max_tokens": 1
-                    })
-                    
-                    # For Groq, use absolute minimal parameters
+            # Create a simple test message
+            messages = [{"role": "user", "content": "Hello"}]
+            
+            try:
+                if is_groq:
+                    # Groq client is consistent
                     response = client.chat.completions.create(
-                        messages=[{"role": "user", "content": "hello"}],
+                        messages=messages,
                         model=model,
-                        max_tokens=1
+                        max_tokens=5  # Minimize token usage for health check
                     )
-                except Exception as api_e:
-                    logger.error(f"Groq API request failed with error: {str(api_e)}")
-                    logger.error(f"Error type: {type(api_e).__name__}")
-                    if hasattr(api_e, 'response'):
-                        logger.error(f"Response status code: {getattr(api_e.response, 'status_code', 'N/A')}")
-                        logger.error(f"Response headers: {getattr(api_e.response, 'headers', {})}")
-                        logger.error(f"Response body: {getattr(api_e.response, 'text', 'N/A')}")
-                    raise
-            else:
-                # For DeepSeek, use their standard approach
-                response = client.chat.completions.create(
-                    model=model,
-                    messages=[{"role": "user", "content": "hello"}],
-                    max_tokens=5
-                )
+                else:
+                    # DeepSeek client might be using different OpenAI versions
+                    # Determine client type and call appropriately
+                    if hasattr(client, 'chat') and hasattr(client.chat, 'completions'):
+                        # Modern OpenAI client (v1.x)
+                        logger.info("Using OpenAI 1.x client for health check")
+                        response = client.chat.completions.create(
+                            model=model,
+                            messages=messages,
+                            max_tokens=5
+                        )
+                    elif hasattr(client, 'ChatCompletion'):
+                        # Legacy OpenAI client with object (v0.x)
+                        logger.info("Using OpenAI 0.x ChatCompletion object for health check")
+                        response = client.ChatCompletion.create(
+                            model=model,
+                            messages=messages,
+                            max_tokens=5
+                        )
+                    else:
+                        # Direct module call for older versions
+                        logger.info("Using direct module call for health check")
+                        import openai
+                        response = openai.ChatCompletion.create(
+                            model=model,
+                            messages=messages,
+                            max_tokens=5
+                        )
+                
+                # Log detailed response information
+                logger.info(f"Response type: {type(response)}")
+                
+                # Extract content based on response type
+                if hasattr(response, 'choices') and hasattr(response.choices[0], 'message'):
+                    # Modern OpenAI response object
+                    content = response.choices[0].message.content
+                    logger.info(f"Content: {content}")
+                elif isinstance(response, dict) and 'choices' in response:
+                    # Dictionary response from older OpenAI versions
+                    content = response['choices'][0]['message']['content']
+                    logger.info(f"Content: {content}")
+                else:
+                    # Log full response for unexpected formats
+                    logger.info(f"Full response: {response}")
+                
+                duration = time.time() - start_time
+                logger.info(f"{api_name} API is healthy (response time: {duration:.2f}s)")
+                
+                # Update status
+                status.is_healthy = True
+                status.last_check_time = time.time()
+                status.consecutive_failures = 0
+                
+                return True, None
             
-            # Check if response has expected fields
-            if not hasattr(response, 'choices') or not response.choices:
-                error_msg = "API response missing choices"
-                logger.error(f"{api_name} API health check failed: {error_msg}")
-                logger.error(f"Raw response: {response}")
-                raise APIError(error_msg)
-            
-            # Log successful response
-            logger.info(f"{api_name} API responded successfully")
-            logger.info(f"Response: {response}")
-            
-            # Update status on success
-            status.is_healthy = True
-            status.last_check_time = time.time()
-            status.last_error = None
-            status.consecutive_failures = 0
-            
-            logger.info(f"{api_name} API health check: SUCCESS")
-            logger.info(f"=== {api_name} Health Check Complete ===\n")
-            return True, None
+            except Exception as e:
+                # Log the exception details
+                logger.error(f"{api_name} API health check failed: {str(e)}")
+                logger.error(f"Error type: {type(e).__name__}")
+                
+                # Log detailed error information if available
+                if hasattr(e, 'response'):
+                    logger.error(f"Response Status: {getattr(e.response, 'status_code', 'N/A')}")
+                    logger.error(f"Response Body: {getattr(e.response, 'text', 'N/A')}")
+                
+                status.is_healthy = False
+                status.last_check_time = time.time()
+                status.last_error = str(e)
+                status.consecutive_failures += 1
+                
+                return False, str(e)
+        
         except Exception as e:
-            error_msg = f"{api_name} API health check failed: {str(e)}"
-            logger.error(error_msg)
-            logger.error(f"Full error details: {e.__class__.__name__}: {str(e)}")
-            
-            # Log detailed error information
-            if hasattr(e, 'response'):
-                logger.error(f"Response Status: {getattr(e.response, 'status_code', 'N/A')}")
-                logger.error(f"Response Headers: {getattr(e.response, 'headers', {})}")
-                logger.error(f"Response Body: {getattr(e.response, 'text', 'N/A')}")
-            
-            # Update status on failure
+            logger.error(f"Error during {api_name} health check: {str(e)}")
             status.is_healthy = False
             status.last_check_time = time.time()
             status.last_error = str(e)
             status.consecutive_failures += 1
-            
-            logger.error(f"=== {api_name} Health Check Failed ===\n")
-            return False, error_msg
+            return False, str(e)
     
-    # Try health check with retry logic
-    try:
-        return health_check()
-    except Exception as e:
-        logger.error(f"Health check failed even with retries: {str(e)}")
-        return False, str(e)
+    # Run the health check with retries
+    return retry_with_backoff(health_check)
 
 def perform_health_checks():
     """Perform health checks on both APIs"""
@@ -398,14 +428,39 @@ def initialize_deepseek_client():
         return None, "DeepSeek API key not configured. Please check your environment variables."
     
     try:
-        # Create client with DeepSeek configuration
-        client = OpenAI(
-            api_key=DEEPSEEK_API_KEY,
-            base_url=DEEPSEEK_API_URL,
-            timeout=60.0,
-            max_retries=2
-        )
-        return client, None
+        # Log OpenAI version for debugging
+        import openai
+        logger.info(f"OpenAI version: {openai.__version__}")
+        is_openai_v1 = openai.__version__.startswith('1.')
+        logger.info(f"Using OpenAI {'1.x' if is_openai_v1 else '0.x'} API")
+        
+        try:
+            # Try modern OpenAI client method (1.x) with DeepSeek's documented URL format
+            logger.info("Attempting to initialize DeepSeek client with OpenAI 1.x API...")
+            # Use only required parameters to avoid compatibility issues
+            client = OpenAI(
+                api_key=DEEPSEEK_API_KEY,
+                base_url=DEEPSEEK_API_URL  # No /v1 suffix as per DeepSeek docs
+            )
+            logger.info("DeepSeek client initialized successfully with OpenAI 1.x API")
+            return client, None
+        except TypeError as e:
+            # Handle proxies argument error common in some environments
+            logger.warning(f"Modern client initialization failed: {str(e)}")
+            if "unexpected keyword argument 'proxies'" in str(e):
+                logger.warning("Detected 'proxies' keyword argument error, this is a known issue")
+                logger.warning("Consider downgrading OpenAI library to 0.28.0 for better compatibility")
+                return None, f"DeepSeek client initialization failed: {str(e)}"
+            
+            # Try direct configuration for pre-1.0 OpenAI
+            if not is_openai_v1:
+                logger.info("Attempting direct configuration for OpenAI 0.x...")
+                openai.api_key = DEEPSEEK_API_KEY
+                openai.api_base = DEEPSEEK_API_URL
+                logger.info("Using direct configuration method for DeepSeek")
+                return openai, None
+            else:
+                return None, f"Failed to initialize DeepSeek client: {str(e)}"
     except Exception as e:
         error_msg = f"Failed to initialize DeepSeek client: {str(e)}"
         logger.error(error_msg)
@@ -668,21 +723,48 @@ def enhance_prompt():
                 logger.info(f"Using model: {model}")
                 logger.info(f"Prompt length: {len(prompt_text)} characters")
                 
-                # Simplified call with minimal parameters
+                # Capture start time for timing
+                start_time = time.time()
+                
+                # Check client type and use appropriate calling method
                 if is_groq:
+                    # Groq client is consistent
                     response = client.chat.completions.create(
                         messages=messages,
                         model=model
                     )
                 else:
-                    response = client.chat.completions.create(
-                        model=model,
-                        messages=messages
-                    )
+                    # DeepSeek client might be using different OpenAI versions
+                    # Determine client type and call appropriately
+                    if hasattr(client, 'chat') and hasattr(client.chat, 'completions'):
+                        # Modern OpenAI client (v1.x)
+                        logger.info("Using OpenAI 1.x client for DeepSeek")
+                        response = client.chat.completions.create(
+                            model=model,
+                            messages=messages
+                        )
+                    elif hasattr(client, 'ChatCompletion'):
+                        # Legacy OpenAI client with object (v0.x)
+                        logger.info("Using OpenAI 0.x ChatCompletion object for DeepSeek")
+                        response = client.ChatCompletion.create(
+                            model=model,
+                            messages=messages
+                        )
+                    else:
+                        # Direct module call for older versions
+                        logger.info("Using direct module call for DeepSeek")
+                        import openai
+                        response = openai.ChatCompletion.create(
+                            model=model,
+                            messages=messages
+                        )
+                
+                # Calculate duration
+                duration = time.time() - start_time
                 
                 # Log success
-                logger.info(f"API request successful with {model}")
-                logger.info(f"Response choices: {len(response.choices)}")
+                logger.info(f"API request successful with {model} in {duration:.2f}s")
+                logger.info(f"Response type: {type(response)}")
                 
                 # Update health status on successful call
                 status = groq_status if is_groq else deepseek_status
@@ -690,7 +772,18 @@ def enhance_prompt():
                 status.last_check_time = time.time()
                 status.consecutive_failures = 0
                 
-                return response.choices[0].message.content
+                # Extract content based on response type
+                if hasattr(response, 'choices') and hasattr(response.choices[0], 'message'):
+                    # Modern OpenAI response object
+                    return response.choices[0].message.content
+                elif isinstance(response, dict) and 'choices' in response:
+                    # Dictionary response from older OpenAI versions
+                    return response['choices'][0]['message']['content']
+                else:
+                    # Fallback for unexpected response format
+                    logger.warning(f"Unexpected response format: {type(response)}")
+                    return str(response)
+                
             except Exception as e:
                 logger.error(f"{'Groq' if is_groq else 'DeepSeek'} API call failed: {str(e)}")
                 logger.error(f"Error type: {type(e).__name__}")
