@@ -116,6 +116,15 @@ if os.getenv('HEROKU_APP_NAME'):
 else:
     logger.info("Running in development environment")
 
+# Model configuration
+PRIMARY_MODEL = "distil-whisper-large-v3-en"
+FALLBACK_MODEL = "llama-3.1-8b-instant"
+DEEPSEEK_MODEL = "deepseek-chat"
+
+logger.info(f"Primary Groq model: {PRIMARY_MODEL}")
+logger.info(f"Fallback Groq model: {FALLBACK_MODEL}")
+logger.info(f"DeepSeek model: {DEEPSEEK_MODEL}")
+
 class APIError(Exception):
     """Custom exception for API-related errors"""
     def __init__(self, message, status_code=None, response=None):
@@ -131,6 +140,13 @@ class APIStatus:
         self.last_check_time = None
         self.last_error = None
         self.consecutive_failures = 0
+        
+        # For Groq with multiple models
+        if name == "Groq":
+            self.primary_healthy = False
+            self.primary_error = None
+            self.fallback_healthy = False
+            self.fallback_error = None
 
 # Global API status trackers
 groq_status = APIStatus("Groq")
@@ -178,7 +194,7 @@ def log_api_details():
 # Call this right after loading environment variables
 log_api_details()
 
-def check_api_health(client, is_groq=True):
+def check_api_health(client, is_groq=True, use_primary_model=True):
     """Check if the API is responsive and working"""
     status = groq_status if is_groq else deepseek_status
     api_name = "Groq" if is_groq else "DeepSeek"
@@ -189,14 +205,14 @@ def check_api_health(client, is_groq=True):
             
             # Use different models for each API
             if is_groq:
-                # Use Groq's most reliable model
-                model = "llama-3.1-8b-instant"
+                # Select appropriate Groq model
+                model = PRIMARY_MODEL if use_primary_model else FALLBACK_MODEL
                 logger.info(f"Using model: {model}")
                 logger.info(f"API URL: {GROQ_API_URL}")
                 logger.info(f"API Key configured: {'Yes' if GROQ_API_KEY else 'No'}")
                 logger.info(f"Client initialized: {'Yes' if client else 'No'}")
             else:
-                model = "deepseek-chat"
+                model = DEEPSEEK_MODEL
                 logger.info(f"Using model: {model}")
                 logger.info(f"API URL: {DEEPSEEK_API_URL}")
                 logger.info(f"API Key configured: {'Yes' if DEEPSEEK_API_KEY else 'No'}")
@@ -265,18 +281,27 @@ def check_api_health(client, is_groq=True):
                     logger.info(f"Full response: {response}")
                 
                 duration = time.time() - start_time
-                logger.info(f"{api_name} API is healthy (response time: {duration:.2f}s)")
+                logger.info(f"{api_name} API is healthy with model {model} (response time: {duration:.2f}s)")
                 
                 # Update status
                 status.is_healthy = True
                 status.last_check_time = time.time()
                 status.consecutive_failures = 0
                 
+                # Update model-specific status for Groq
+                if is_groq:
+                    if use_primary_model:
+                        status.primary_healthy = True
+                        status.primary_error = None
+                    else:
+                        status.fallback_healthy = True
+                        status.fallback_error = None
+                
                 return True, None
             
             except Exception as e:
                 # Log the exception details
-                logger.error(f"{api_name} API health check failed: {str(e)}")
+                logger.error(f"{api_name} API health check failed with model {model}: {str(e)}")
                 logger.error(f"Error type: {type(e).__name__}")
                 
                 # Log detailed error information if available
@@ -284,7 +309,19 @@ def check_api_health(client, is_groq=True):
                     logger.error(f"Response Status: {getattr(e.response, 'status_code', 'N/A')}")
                     logger.error(f"Response Body: {getattr(e.response, 'text', 'N/A')}")
                 
-                status.is_healthy = False
+                # Update status - we only consider the API unhealthy if both models fail for Groq
+                if is_groq:
+                    if use_primary_model:
+                        status.primary_healthy = False
+                        status.primary_error = str(e)
+                    else:
+                        status.fallback_healthy = False
+                        status.fallback_error = str(e)
+                    # For backward compatibility, set overall health based on either model
+                    status.is_healthy = status.primary_healthy or status.fallback_healthy
+                else:
+                    status.is_healthy = False
+                
                 status.last_check_time = time.time()
                 status.last_error = str(e)
                 status.consecutive_failures += 1
@@ -293,10 +330,22 @@ def check_api_health(client, is_groq=True):
         
         except Exception as e:
             logger.error(f"Error during {api_name} health check: {str(e)}")
+            
+            # Update status
             status.is_healthy = False
             status.last_check_time = time.time()
             status.last_error = str(e)
             status.consecutive_failures += 1
+            
+            # Update model-specific status for Groq
+            if is_groq:
+                if use_primary_model:
+                    status.primary_healthy = False
+                    status.primary_error = str(e)
+                else:
+                    status.fallback_healthy = False
+                    status.fallback_error = str(e)
+            
             return False, str(e)
     
     # Run the health check with retries
@@ -305,17 +354,30 @@ def check_api_health(client, is_groq=True):
 def perform_health_checks():
     """Perform health checks on both APIs"""
     results = {
-        "groq": {"healthy": False, "error": None},
+        "groq_primary": {"healthy": False, "error": None},
+        "groq_fallback": {"healthy": False, "error": None},
         "deepseek": {"healthy": False, "error": None}
     }
     
-    # Check Groq
+    # Check Groq with primary model
     if groq_client is not None:
-        is_healthy, error = check_api_health(groq_client, True)
-        results["groq"]["healthy"] = is_healthy
-        results["groq"]["error"] = error
+        try:
+            is_healthy, error = check_api_health(groq_client, True, use_primary_model=True)
+            results["groq_primary"]["healthy"] = is_healthy
+            results["groq_primary"]["error"] = error
+            
+            # If primary model check fails, try fallback
+            if not is_healthy:
+                logger.info(f"Primary model {PRIMARY_MODEL} health check failed, trying fallback {FALLBACK_MODEL}")
+                is_healthy, error = check_api_health(groq_client, True, use_primary_model=False)
+                results["groq_fallback"]["healthy"] = is_healthy
+                results["groq_fallback"]["error"] = error
+        except Exception as e:
+            logger.error(f"Error during Groq health checks: {str(e)}")
+            results["groq_primary"]["error"] = str(e)
     else:
-        results["groq"]["error"] = "Groq client not initialized"
+        results["groq_primary"]["error"] = "Groq client not initialized"
+        results["groq_fallback"]["error"] = "Groq client not initialized"
     
     # Check DeepSeek
     if deepseek_client is not None:
@@ -325,15 +387,47 @@ def perform_health_checks():
     else:
         results["deepseek"]["error"] = "DeepSeek client not initialized"
     
-    return results
+    # Simplify the results for backward compatibility
+    simplified_results = {
+        "groq": {
+            "healthy": results["groq_primary"]["healthy"] or results["groq_fallback"]["healthy"],
+            "error": results["groq_primary"]["error"] if not results["groq_primary"]["healthy"] else None
+        },
+        "deepseek": results["deepseek"]
+    }
+    
+    return simplified_results
 
 @app.route('/health')
 def health_check():
     """Health check endpoint for monitoring API status"""
     results = perform_health_checks()
     
+    # Extract the detailed Groq model results
+    detailed_results = {
+        "groq_primary": {"healthy": False, "error": None},
+        "groq_fallback": {"healthy": False, "error": None},
+        "deepseek": {"healthy": False, "error": None}
+    }
+    
+    # Try to get detailed model statuses if available
+    if hasattr(groq_status, 'primary_healthy'):
+        detailed_results["groq_primary"]["healthy"] = groq_status.primary_healthy
+        detailed_results["groq_primary"]["error"] = groq_status.primary_error
+        detailed_results["groq_fallback"]["healthy"] = groq_status.fallback_healthy
+        detailed_results["groq_fallback"]["error"] = groq_status.fallback_error
+    else:
+        # Backward compatibility
+        detailed_results["groq_primary"]["healthy"] = results["groq"]["healthy"]
+        detailed_results["groq_primary"]["error"] = results["groq"]["error"]
+    
+    detailed_results["deepseek"] = results["deepseek"]
+    
     # Determine overall status
-    all_healthy = all(api["healthy"] for api in results.values() if api["error"] != "Client not initialized")
+    all_healthy = (detailed_results["groq_primary"]["healthy"] or 
+                   detailed_results["groq_fallback"]["healthy"] or 
+                   detailed_results["deepseek"]["healthy"])
+    
     status_code = 200 if all_healthy else 503
     
     response = {
@@ -342,12 +436,22 @@ def health_check():
         "apis": {
             "groq": {
                 "status": "healthy" if results["groq"]["healthy"] else "unhealthy",
+                "primary_model": {
+                    "name": PRIMARY_MODEL,
+                    "status": "healthy" if detailed_results["groq_primary"]["healthy"] else "unhealthy",
+                    "error": detailed_results["groq_primary"]["error"]
+                },
+                "fallback_model": {
+                    "name": FALLBACK_MODEL,
+                    "status": "healthy" if detailed_results["groq_fallback"]["healthy"] else "unhealthy",
+                    "error": detailed_results["groq_fallback"]["error"]
+                },
                 "last_check": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(groq_status.last_check_time)) if groq_status.last_check_time else None,
-                "consecutive_failures": groq_status.consecutive_failures,
-                "error": results["groq"]["error"]
+                "consecutive_failures": groq_status.consecutive_failures
             },
             "deepseek": {
                 "status": "healthy" if results["deepseek"]["healthy"] else "unhealthy",
+                "model": DEEPSEEK_MODEL,
                 "last_check": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(deepseek_status.last_check_time)) if deepseek_status.last_check_time else None,
                 "consecutive_failures": deepseek_status.consecutive_failures,
                 "error": results["deepseek"]["error"]
@@ -382,28 +486,43 @@ def initialize_groq_client():
             logger.info("Sending test request to Groq API...")
             logger.info("Request parameters:")
             logger.info({
-                "model": "llama-3.1-8b-instant",
+                "model": PRIMARY_MODEL,
                 "messages": [{"role": "user", "content": "Hi"}],
                 "max_tokens": 5
             })
             
             response = client.chat.completions.create(
                 messages=[{"role": "user", "content": "Hi"}],
-                model="llama-3.1-8b-instant",
+                model=PRIMARY_MODEL,
                 max_tokens=5
             )
             logger.info("Successfully tested Groq connection")
             logger.info(f"Response: {response}")
         except Exception as e:
-            logger.error("Failed to test Groq connection")
+            logger.error(f"Failed to test Groq with primary model: {str(e)}")
             logger.error(f"Error type: {type(e).__name__}")
             logger.error(f"Error message: {str(e)}")
-            if hasattr(e, 'response'):
-                logger.error(f"Response Status: {getattr(e.response, 'status_code', 'N/A')}")
-                logger.error(f"Response Headers: {getattr(e.response, 'headers', {})}")
-                logger.error(f"Response Body: {getattr(e.response, 'text', 'N/A')}")
-            # Don't raise the exception, return with error message
-            return None, f"Groq connection test failed: {str(e)}"
+            
+            # Try fallback model
+            logger.info(f"Attempting with fallback model: {FALLBACK_MODEL}")
+            try:
+                response = client.chat.completions.create(
+                    messages=[{"role": "user", "content": "Hi"}],
+                    model=FALLBACK_MODEL,
+                    max_tokens=5
+                )
+                logger.info("Successfully tested Groq connection with fallback model")
+                logger.info(f"Response: {response}")
+            except Exception as e2:
+                logger.error("Failed to test Groq connection with fallback model")
+                logger.error(f"Error type: {type(e2).__name__}")
+                logger.error(f"Error message: {str(e2)}")
+                if hasattr(e2, 'response'):
+                    logger.error(f"Response Status: {getattr(e2.response, 'status_code', 'N/A')}")
+                    logger.error(f"Response Headers: {getattr(e2.response, 'headers', {})}")
+                    logger.error(f"Response Body: {getattr(e2.response, 'text', 'N/A')}")
+                # Don't raise the exception, return with error message
+                return None, f"Groq connection test failed: {str(e2)}"
         
         logger.info("=== Groq Client Initialization Complete ===\n")
         return client, None
@@ -712,9 +831,16 @@ def enhance_prompt():
             {"role": "user", "content": prompt_text}
         ]
         
-        def try_api_call(client, is_groq=True):
+        def try_api_call(client, is_groq=True, model=None):
             try:
-                model = "llama-3.1-8b-instant" if is_groq else "deepseek-chat"
+                if is_groq:
+                    # Use specific model or default to primary
+                    if model is None:
+                        model = PRIMARY_MODEL
+                else:
+                    # DeepSeek model
+                    model = DEEPSEEK_MODEL
+                
                 logger.info(f"Attempting enhance request with {'Groq' if is_groq else 'DeepSeek'} API")
                 logger.info(f"Using model: {model}")
                 logger.info(f"Prompt length: {len(prompt_text)} characters")
@@ -781,7 +907,7 @@ def enhance_prompt():
                     return str(response)
                 
             except Exception as e:
-                logger.error(f"{'Groq' if is_groq else 'DeepSeek'} API call failed: {str(e)}")
+                logger.error(f"{'Groq' if is_groq else 'DeepSeek'} API call failed with model {model}: {str(e)}")
                 logger.error(f"Error type: {type(e).__name__}")
                 
                 # Log detailed error information
@@ -797,29 +923,40 @@ def enhance_prompt():
                 status.consecutive_failures += 1
                 raise
 
-        # Try Groq first if it's healthy, otherwise try DeepSeek
+        # Try models in order of preference with fallback
         enhanced_prompt = None
         error_message = None
         
-        # Try primary API
+        # Try Groq with primary model
         if groq_client is not None and api_health["groq"]["healthy"]:
             try:
-                enhanced_prompt = try_api_call(groq_client, True)
-                logger.info("Successfully enhanced prompt using Groq API")
+                logger.info(f"Trying primary model: {PRIMARY_MODEL}")
+                enhanced_prompt = try_api_call(groq_client, True, PRIMARY_MODEL)
+                logger.info("Successfully enhanced prompt using primary Groq model")
             except Exception as e:
-                error_message = str(e)
-                logger.error(f"Groq API failed, trying fallback: {error_message}")
+                error_message = f"Primary model error: {str(e)}"
+                logger.error(f"Primary Groq model failed, trying fallback: {error_message}")
+                
+                # Try Groq with fallback model
+                try:
+                    logger.info(f"Trying fallback model: {FALLBACK_MODEL}")
+                    enhanced_prompt = try_api_call(groq_client, True, FALLBACK_MODEL)
+                    logger.info("Successfully enhanced prompt using fallback Groq model")
+                except Exception as e2:
+                    error_message += f" | Fallback model error: {str(e2)}"
+                    logger.error(f"Fallback Groq model also failed: {str(e2)}")
         
-        # If Groq failed or is unhealthy, try DeepSeek
+        # If both Groq models failed or Groq is unhealthy, try DeepSeek
         if enhanced_prompt is None and deepseek_client is not None and api_health["deepseek"]["healthy"]:
             try:
+                logger.info(f"Trying DeepSeek model: {DEEPSEEK_MODEL}")
                 enhanced_prompt = try_api_call(deepseek_client, False)
-                logger.info("Successfully enhanced prompt using DeepSeek API (fallback)")
+                logger.info("Successfully enhanced prompt using DeepSeek model (final fallback)")
             except Exception as e:
                 if error_message:
                     error_message += f" | DeepSeek error: {str(e)}"
                 else:
-                    error_message = str(e)
+                    error_message = f"DeepSeek error: {str(e)}"
                 logger.error(f"DeepSeek API also failed: {str(e)}")
         
         # Return result or error
