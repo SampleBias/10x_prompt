@@ -187,6 +187,42 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentPromptType = 'user'; // Default to user prompt
     let activeTemplate = null;
     
+    // Check if user is logged in by looking for logout button
+    const isLoggedIn = document.querySelector('.logout-btn') !== null;
+    
+    // Show donation modal after login if user is logged in
+    if (isLoggedIn) {
+        // Check if user has already seen the donation modal this session
+        if (!sessionStorage.getItem('donationModalShown')) {
+            // Show donation modal with a slight delay after page load
+            setTimeout(() => {
+                const donationModal = document.getElementById('donation-modal');
+                donationModal.style.display = 'block';
+                
+                // Mark as shown in this session
+                sessionStorage.setItem('donationModalShown', 'true');
+            }, 1000); // 1 second delay
+        }
+    }
+    
+    // Close donation modal when the close button is clicked
+    document.getElementById('close-donation-modal').addEventListener('click', function() {
+        document.getElementById('donation-modal').style.display = 'none';
+    });
+    
+    // Close donation modal when "Maybe Later" button is clicked
+    document.getElementById('maybe-later-btn').addEventListener('click', function() {
+        document.getElementById('donation-modal').style.display = 'none';
+    });
+    
+    // Close donation modal when clicking outside the modal content
+    window.addEventListener('click', function(event) {
+        const donationModal = document.getElementById('donation-modal');
+        if (event.target === donationModal) {
+            donationModal.style.display = 'none';
+        }
+    });
+    
     // Helper function to clear metadata containers
     function clearMetadataContainers() {
         const existingMetadataContainers = document.querySelectorAll('.metadata-container');
