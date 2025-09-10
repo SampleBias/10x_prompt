@@ -553,7 +553,26 @@ def enhance_prompt():
                 error_msg += f": {error_message}"
             return jsonify({"error": error_msg}), 500
         
-        # Post-process to remove common prefixes and explanations
+        # Post-process to remove common prefixes, explanations, and think tags
+        # Remove complete <think>...</think> blocks (case insensitive, multiline)
+        think_pattern = r'<think>.*?</think>'
+        enhanced_prompt = re.sub(think_pattern, '', enhanced_prompt, flags=re.DOTALL | re.IGNORECASE)
+        
+        # Handle incomplete <think> tags by removing everything from <think> to the end
+        # This is a simple and safe approach for the most common case
+        if '<think>' in enhanced_prompt.lower():
+            # Find the position of <think> and remove everything from there
+            think_pos = enhanced_prompt.lower().find('<think>')
+            if think_pos != -1:
+                enhanced_prompt = enhanced_prompt[:think_pos]
+        
+        # Remove any remaining standalone <think> or </think> tags
+        enhanced_prompt = re.sub(r'</?think>', '', enhanced_prompt, flags=re.IGNORECASE)
+        
+        # Clean up extra whitespace that might be left after removing think tags
+        enhanced_prompt = re.sub(r'\n\s*\n\s*\n', '\n\n', enhanced_prompt)  # Replace multiple newlines with double
+        enhanced_prompt = enhanced_prompt.strip()
+        
         # List of prefixes to remove
         prefixes_to_remove = [
             "Here is the enhanced prompt:", "Enhanced prompt:", "Here's the enhanced prompt:",
