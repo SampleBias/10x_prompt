@@ -803,8 +803,41 @@ document.addEventListener('DOMContentLoaded', function() {
         const template = templates[templateKey];
         
         modalTitle.textContent = template.title;
-        modalContent.textContent = template.content;
+        
+        // Format content for better readability, especially for image templates
+        let formattedContent = template.content;
+        
+        if (promptType === 'image') {
+            // Add special styling class for image templates
+            modal.querySelector('.modal-content').classList.add('image-template');
+            
+            // Format the content for better readability
+            formattedContent = formatImageTemplateContent(template.content);
+        } else {
+            // Remove image template class for other types
+            modal.querySelector('.modal-content').classList.remove('image-template');
+        }
+        
+        modalContent.innerHTML = formattedContent;
         modal.style.display = 'block';
+    }
+    
+    // Function to format image template content for better readability
+    function formatImageTemplateContent(content) {
+        return content
+            // Make section headers bold and add spacing
+            .replace(/^([A-Z][^:]*:)$/gm, '<strong>$1</strong>')
+            // Make sub-section headers bold
+            .replace(/^([A-Z][^:]*[A-Z][^:]*:)$/gm, '<strong>$1</strong>')
+            // Add visual separation for main sections
+            .replace(/^(🎭|🏞️|📦|👻|💕|🧙|🚀|🏗️|🚗|🍽️|👗|📸|⚪|🎬|💥|🎌|📷)([^:]*:)$/gm, '<div style="margin-top: 1.5rem; margin-bottom: 0.5rem;"><strong style="font-size: 1.1rem; color: #000;">$1$2</strong></div>')
+            // Highlight option brackets with better styling
+            .replace(/\[([^\]]+)\]/g, '<span style="background-color: #e3f2fd; color: #1565c0; padding: 2px 6px; border-radius: 3px; font-weight: 500; font-size: 0.9rem;">[$1]</span>')
+            // Add spacing after bullet points
+            .replace(/^- /gm, '<span style="color: #666; font-weight: 500;">•</span> ')
+            // Convert newlines to proper HTML breaks
+            .replace(/\n\n/g, '<br><br>')
+            .replace(/\n/g, '<br>');
     }
     
     closeModal.addEventListener('click', function() {
