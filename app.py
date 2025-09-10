@@ -371,6 +371,38 @@ def enhance_prompt():
             DO NOT explain what you did.
             DO NOT add any text before or after the enhanced prompt.
             Your entire response should be ONLY the enhanced prompt that the user can directly copy and paste."""
+        elif prompt_type == 'image':
+            system_message = """You are an expert image generation prompt engineer specializing in AI image generation models like DALL-E, Midjourney, Stable Diffusion, and others.
+
+            Your task is to convert the provided template-based image generation prompt into a comprehensive, well-structured JSON format that can be easily used with any image generation AI.
+
+            CRITICAL REQUIREMENTS:
+            1. Return ONLY valid JSON - no explanations, no prefixes, no commentary
+            2. Structure the JSON with clear categories and subcategories
+            3. Convert all [option1/option2/option3] brackets into "options" arrays
+            4. Make the JSON comprehensive but clean
+            5. Include a "final_prompt" field with a natural language summary
+            
+            JSON Structure should include:
+            {
+              "prompt_type": "image_generation",
+              "category": "portrait/landscape/product/etc",
+              "parameters": {
+                "subject": {...},
+                "style": {...},
+                "lighting": {...},
+                "composition": {...},
+                "technical": {...}
+              },
+              "options": {
+                "style_options": [...],
+                "mood_options": [...],
+                "technical_options": [...]
+              },
+              "final_prompt": "A natural language description combining all elements"
+            }
+            
+            Your entire response must be valid JSON that can be parsed directly."""
         else:  # system prompt
             system_message = """You are an expert prompt engineer. Your task is to enhance system prompts that are used to control AI assistant behavior.
             Improve the clarity, specificity, and effectiveness of the system prompt. Make it more detailed, address edge cases, and ensure consistent behavior.
@@ -577,6 +609,41 @@ def enhance_prompt():
         # Strip any leading/trailing whitespace once more after all processing
         enhanced_prompt = enhanced_prompt.strip()
         
+        # For image prompts, validate JSON format
+        if prompt_type == 'image':
+            try:
+                # Try to parse as JSON to validate
+                import json
+                json_data = json.loads(enhanced_prompt)
+                
+                # Ensure it has required fields
+                if not isinstance(json_data, dict):
+                    raise ValueError("Response is not a valid JSON object")
+                
+                # Add some basic validation
+                if 'prompt_type' not in json_data:
+                    json_data['prompt_type'] = 'image_generation'
+                
+                # Re-serialize to ensure clean JSON
+                enhanced_prompt = json.dumps(json_data, indent=2, ensure_ascii=False)
+                
+            except (json.JSONDecodeError, ValueError) as e:
+                logger.error(f"Invalid JSON response for image prompt: {e}")
+                logger.error(f"Raw response: {enhanced_prompt}")
+                
+                # Fallback: create a structured JSON from the text response
+                fallback_json = {
+                    "prompt_type": "image_generation",
+                    "category": "general",
+                    "raw_prompt": enhanced_prompt,
+                    "final_prompt": enhanced_prompt,
+                    "note": "AI returned non-JSON format, wrapped in structured format",
+                    "parameters": {
+                        "description": enhanced_prompt
+                    }
+                }
+                enhanced_prompt = json.dumps(fallback_json, indent=2, ensure_ascii=False)
+        
         # Calculate time taken
         time_taken = time.time() - start_time
         
@@ -589,14 +656,42 @@ def enhance_prompt():
                 "provider": api_provider,
                 "model": api_model,
                 "time_taken": round(time_taken, 2),
-                "token_count": len(enhanced_prompt.split())
+                "token_count": len(enhanced_prompt.split()) if prompt_type != 'image' else len(enhanced_prompt)
             }
         })
                 
     except Exception as e:
-        logger.error(f"Error enhancing prompt: {str(e)}")
+        error_message = str(e)
+        logger.error(f"Error enhancing prompt: {error_message}")
         logger.error(traceback.format_exc())
-        return jsonify({'error': 'Failed to enhance prompt'}), 500
+        
+        # Handle specific error types more gracefully
+        if "Unexpected token '<'" in error_message or "HTML" in error_message:
+            error_response = {
+                'error': 'The AI service returned an unexpected response format. This may be due to high demand or a temporary service issue.',
+                'details': 'Please try again in a moment, or try with a different prompt.',
+                'error_type': 'INVALID_RESPONSE_FORMAT'
+            }
+        elif "timeout" in error_message.lower():
+            error_response = {
+                'error': 'The request timed out. The AI service may be experiencing high demand.',
+                'details': 'Please try again in a moment.',
+                'error_type': 'TIMEOUT_ERROR'
+            }
+        elif "rate limit" in error_message.lower():
+            error_response = {
+                'error': 'Rate limit exceeded. Please wait a moment before trying again.',
+                'details': 'The AI service has temporary usage limits.',
+                'error_type': 'RATE_LIMIT_ERROR'
+            }
+        else:
+            error_response = {
+                'error': 'Failed to enhance prompt due to an unexpected error.',
+                'details': 'Please try again or contact support if the issue persists.',
+                'error_type': 'GENERAL_ERROR'
+            }
+        
+        return jsonify(error_response), 500
 
 @app.route('/system-health')
 def system_health():

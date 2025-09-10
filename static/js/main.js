@@ -937,8 +937,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 throw new Error('Received empty response from the server.');
             }
             
-            // Display the enhanced prompt
-            outputContent.textContent = data.enhanced_prompt;
+            // Display the enhanced prompt with special formatting for image prompts
+            if (currentPromptType === 'image') {
+                displayImagePrompt(data.enhanced_prompt);
+            } else {
+                outputContent.textContent = data.enhanced_prompt;
+            }
             
             // Add metadata display below the output
             const metadataHtml = `
@@ -964,7 +968,9 @@ document.addEventListener('DOMContentLoaded', function() {
             const errorMessage = error.message || 'An unknown error occurred';
             let userFriendlyMessage;
             
-            if (errorMessage.includes('API request failed') || 
+            if (errorMessage.includes('unexpected response format') || errorMessage.includes('Unexpected token')) {
+                userFriendlyMessage = 'The AI service returned an unexpected format. This usually happens during high demand periods.';
+            } else if (errorMessage.includes('API request failed') || 
                 errorMessage.includes('rate limit') || 
                 errorMessage.includes('timeout')) {
                 userFriendlyMessage = 'The enhancement service is currently experiencing high demand. Please try again in a moment.';
@@ -974,12 +980,93 @@ document.addEventListener('DOMContentLoaded', function() {
                 userFriendlyMessage = 'Could not enhance prompt. Please try again or use a different prompt.';
             }
             
-            showError(`${userFriendlyMessage}<br><small>(${errorMessage})</small>`);
+            showError(`${userFriendlyMessage}<br><small>Technical details: ${errorMessage}</small>`);
         })
         .finally(() => {
             loadingIndicator.style.display = 'none';
         });
     });
+    
+    // Function to display JSON formatted image prompts
+    function displayImagePrompt(jsonString) {
+        try {
+            // Parse the JSON to validate and format it
+            const jsonData = JSON.parse(jsonString);
+            
+            // Create a formatted display
+            const formattedJson = JSON.stringify(jsonData, null, 2);
+            
+            // Create a container with syntax highlighting
+            outputContent.innerHTML = `
+                <div class="json-output">
+                    <div class="json-header">
+                        <span class="json-title">📋 Image Generation Prompt (JSON Format)</span>
+                        <button class="json-toggle" onclick="toggleJsonView(this)">Raw JSON</button>
+                    </div>
+                    <div class="json-formatted">
+                        <pre><code class="json-code">${escapeHtml(formattedJson)}</code></pre>
+                    </div>
+                    <div class="json-raw" style="display: none;">
+                        <textarea readonly class="json-raw-text">${formattedJson}</textarea>
+                    </div>
+                </div>
+            `;
+            
+            // Apply syntax highlighting
+            highlightJson();
+            
+        } catch (e) {
+            // Fallback to plain text if JSON parsing fails
+            console.warn('Failed to parse JSON, displaying as plain text:', e);
+            outputContent.textContent = jsonString;
+        }
+    }
+    
+    // Function to escape HTML characters
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+    
+    // Function to apply basic JSON syntax highlighting
+    function highlightJson() {
+        const codeElement = outputContent.querySelector('.json-code');
+        if (codeElement) {
+            let html = codeElement.innerHTML;
+            
+            // Highlight strings (green)
+            html = html.replace(/"([^"\\]*(\\.[^"\\]*)*)"/g, '<span style="color: #22863a;">"$1"</span>');
+            
+            // Highlight numbers (blue)
+            html = html.replace(/\b(\d+\.?\d*)\b/g, '<span style="color: #005cc5;">$1</span>');
+            
+            // Highlight booleans and null (purple)
+            html = html.replace(/\b(true|false|null)\b/g, '<span style="color: #6f42c1;">$1</span>');
+            
+            // Highlight keys (dark blue)
+            html = html.replace(/^(\s*)"([^"]+)":/gm, '$1<span style="color: #032f62; font-weight: 600;">"$2"</span>:');
+            
+            codeElement.innerHTML = html;
+        }
+    }
+    
+    // Global function for toggling JSON view
+    window.toggleJsonView = function(button) {
+        const container = button.closest('.json-output');
+        const formatted = container.querySelector('.json-formatted');
+        const raw = container.querySelector('.json-raw');
+        
+        if (raw.style.display === 'none') {
+            formatted.style.display = 'none';
+            raw.style.display = 'block';
+            button.textContent = 'Formatted View';
+        } else {
+            formatted.style.display = 'block';
+            raw.style.display = 'none';
+            button.textContent = 'Raw JSON';
+        }
+    };
     
     // Function to show error messages
     function showError(message) {
@@ -989,9 +1076,23 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Copy button functionality
     copyBtn.addEventListener('click', function() {
-        const textToCopy = outputContent.textContent;
+        let textToCopy;
         
-        if (!textToCopy || outputContent.classList.contains('error')) {
+        if (outputContent.classList.contains('error')) {
+            return;
+        }
+        
+        // Check if this is a JSON output
+        const jsonRawTextarea = outputContent.querySelector('.json-raw-text');
+        if (jsonRawTextarea) {
+            // For JSON outputs, copy the raw JSON
+            textToCopy = jsonRawTextarea.value;
+        } else {
+            // For regular text outputs
+            textToCopy = outputContent.textContent;
+        }
+        
+        if (!textToCopy) {
             return;
         }
         
