@@ -429,7 +429,7 @@ def enhance_prompt():
                 
                 # Make the API call using the Groq SDK
                 chat_completion = client.chat.completions.create(
-                    model="llama3-70b-8192",
+                    model="deepseek-r1-distill-llama-70b",
                     messages=[
                         {"role": "system", "content": system_message},
                         {"role": "user", "content": input_prompt}
@@ -441,7 +441,7 @@ def enhance_prompt():
                 # Extract the enhanced prompt
                 enhanced_prompt = chat_completion.choices[0].message.content.strip()
                 api_provider = "Groq"
-                api_model = "llama3-70b-8192"
+                api_model = "deepseek-r1-distill-llama-70b"
                 
             except Exception as groq_err:
                 logger.warning(f"Groq API error, will try fallback: {str(groq_err)}")

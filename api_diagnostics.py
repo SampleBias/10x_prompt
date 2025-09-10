@@ -60,6 +60,7 @@ def test_groq_with_sdk():
         
         # Test with different models
         test_models = [
+            "deepseek-r1-distill-llama-70b",  # Primary model
             "llama-3.1-8b-instant",
             "llama-3.1-70b-instant",
             "llama-3.1-8b",
@@ -125,6 +126,7 @@ def test_groq_with_openai():
         
         # Test with different models
         test_models = [
+            "deepseek-r1-distill-llama-70b",  # Primary model
             "llama-3.1-8b-instant",
             "llama-3.1-70b-instant",
             "llama-3.1-8b",
