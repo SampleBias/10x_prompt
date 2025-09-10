@@ -50,11 +50,11 @@
                 <div class="how-to-use-content" id="how-to-use-content">
                     <div class="how-to-use-section">
                         <h3>What is 10x Prompt?</h3>
-                        <p>10x Prompt is a tool that enhances your basic prompts, making them 10 times more effective for large language models (LLMs) like ChatGPT, Claude, Nucleo, Gemini or any other AI assistant/agent.</p>
+                        <p>10x Prompt is a tool that enhances your basic prompts, making them 10 times more effective for large language models (LLMs) like ChatGPT, Claude, Nucleo, Gemini or any other AI assistant/agent. It now includes comprehensive templates for multimodal image generation LLMs.</p>
                     </div>
                     
                     <div class="how-to-use-section">
-                        <h3>User Prompts vs. System Prompts</h3>
+                        <h3>Prompt Types</h3>
                         <div class="prompt-types">
                             <div class="prompt-type-card">
                                 <h4>User Prompts</h4>
@@ -68,13 +68,19 @@
                                 <p><strong>Example:</strong> "Always explain concepts using simple analogies and avoid technical jargon."</p>
                                 <p><strong>When to use:</strong> When building your own AI agents or setting custom instructions in platforms that support system prompts.</p>
                             </div>
+                            <div class="prompt-type-card">
+                                <h4>Image Generation</h4>
+                                <p>Comprehensive templates for creating detailed image generation prompts for AI models like DALL-E, Midjourney, Stable Diffusion, and other visual AI systems.</p>
+                                <p><strong>Example:</strong> "Portrait photography with professional lighting and studio setup."</p>
+                                <p><strong>When to use:</strong> For creating images with AI, including photography, art styles, scenes, and technical specifications.</p>
+                            </div>
                         </div>
                     </div>
                     
                     <div class="how-to-use-section">
                         <h3>Using This Tool</h3>
                         <ol>
-                            <li>Select whether you want to enhance a <strong>User Prompt</strong> or a <strong>System Prompt</strong>.</li>
+                            <li>Select whether you want to enhance a <strong>User Prompt</strong>, <strong>System Prompt</strong>, or create an <strong>Image Generation</strong> prompt.</li>
                             <li>Enter your prompt in the text area or click one of the template buttons to start with a template.</li>
                             <li>You can add multiple templates to build more complex prompts - they'll be added at your cursor position.</li>
                             <li>Use the <strong>Clear</strong> button to erase your prompt and start over if needed.</li>
@@ -89,11 +95,12 @@
             <div class="prompt-type-toggle">
                 <button id="user-toggle" class="toggle-btn active">User Prompt</button>
                 <button id="system-toggle" class="toggle-btn">System Prompt</button>
+                <button id="image-toggle" class="toggle-btn">Image Generation</button>
             </div>
             
             <!-- Input Section -->
             <section class="input-section">
-                <textarea id="prompt-input" placeholder="Enter your prompt here..."></textarea>
+                <textarea id="prompt-input" placeholder="Enter your prompt here or select a template..."></textarea>
                 
                 <div class="button-row">
                     <div id="templates-section" class="templates-section">

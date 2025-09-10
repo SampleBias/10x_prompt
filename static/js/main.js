@@ -80,6 +80,503 @@ Context: {{what triggered investigation / observed behavior}}`
     }
 };
 
+// Image generation templates
+const imageTemplates = {
+    // CORE PHOTOGRAPHY TEMPLATES
+    "portrait": {
+        title: "Portrait Photography",
+        content: `🎭 Portrait Template
+
+Scene Type: [headshot/three-quarter/full body]
+Purpose: [professional/casual/artistic/family]
+Mood: [confident/approachable/serious/warm]
+
+Subject Details:
+- Age: [age range or specific]
+- Gender: [gender identity]
+- Ethnicity: [ethnic background]
+- Build: [body type description]
+- Expression: [smile/serious/contemplative/etc]
+- Eye Contact: [direct/away/down/up]
+
+Styling:
+- Hair: [style/color/length]
+- Makeup: [natural/professional/dramatic/none]
+- Clothing: [business/casual/formal/creative]
+- Accessories: [jewelry/glasses/watch/etc]
+
+Lighting Setup:
+- Type: [natural/studio/mixed]
+- Direction: [front/side/back/ring]
+- Quality: [soft/hard/diffused/dramatic]
+- Background Separation: [yes/no/subtle]
+
+Background:
+- Type: [solid/gradient/environmental/blurred]
+- Color: [specific colors or neutral]
+- Texture: [smooth/textured/patterned]
+
+Camera Settings:
+- Lens: [85mm/50mm/35mm equivalent]
+- Aperture: [shallow/medium/deep DOF]
+- Angle: [eye level/slightly above/below]`
+    },
+    "landscape": {
+        title: "Landscape Photography",
+        content: `🏞️ Landscape Template
+
+Scene Details:
+- Location Type: [mountain/ocean/forest/urban/desert]
+- Season: [spring/summer/fall/winter]
+- Time: [golden hour/blue hour/midday/night]
+- Weather: [clear/cloudy/stormy/misty]
+
+Composition:
+- Foreground: [rocks/flowers/water/empty]
+- Midground: [trees/buildings/hills]
+- Background: [mountains/sky/horizon]
+- Focal Point: [specific feature to highlight]
+
+Lighting:
+- Source: [sun/moon/artificial]
+- Direction: [front/side/back/overhead]
+- Quality: [golden/harsh/soft/dramatic]
+- Shadows: [long/short/none/dramatic]
+
+Camera Perspective:
+- View: [wide/telephoto/normal]
+- Height: [ground level/elevated/aerial]
+- Depth of Field: [everything sharp/selective focus]
+
+Natural Elements:
+- Water: [ocean/lake/river/waterfall/none]
+- Vegetation: [lush/sparse/none/seasonal]
+- Wildlife: [birds/animals/none]
+- Human Elements: [buildings/people/none]`
+    },
+    "product": {
+        title: "Product Photography",
+        content: `📦 Product Template
+
+Product Details:
+- Type: [electronics/clothing/food/cosmetics/etc]
+- Size: [small/medium/large]
+- Material: [metal/plastic/fabric/glass/etc]
+- Color Scheme: [monochrome/colorful/branded]
+
+Setup Style:
+- Approach: [clean/lifestyle/editorial/catalog]
+- Background: [white/colored/textured/environmental]
+- Surface: [reflective/matte/textured/floating]
+- Props: [minimal/contextual/none]
+
+Lighting Setup:
+- Configuration: [key+fill/ring light/softbox/natural]
+- Shadows: [none/soft/dramatic/rim]
+- Reflections: [controlled/natural/minimized]
+
+Camera Angle:
+- Primary View: [front/three-quarter/side/top-down]
+- Height: [eye level/above/below]
+- Focus Area: [entire product/detail/feature]`
+    },
+    
+    // STORYTELLING TEMPLATES
+    "horror": {
+        title: "Horror Scene",
+        content: `👻 Horror Template
+
+Atmosphere:
+- Mood: [suspenseful/terrifying/eerie/psychological]
+- Tension Level: [building/peak/aftermath]
+- Supernatural: [yes/no/ambiguous]
+
+Setting:
+- Location: [haunted house/forest/asylum/urban decay]
+- Time: [night/twilight/stormy day]
+- Condition: [abandoned/deteriorating/pristine but wrong]
+
+Subject:
+- Role: [victim/investigator/entity/witness]
+- Emotional State: [terrified/determined/possessed/confused]
+- Physical State: [normal/injured/transformed]
+
+Visual Elements:
+- Shadows: [deep/moving/unnatural]
+- Lighting: [flickering/dim/harsh contrast/colored]
+- Atmosphere: [fog/smoke/none/supernatural]
+- Decay: [rust/mold/cracks/overgrowth]
+
+Horror Type:
+- Style: [psychological/gore/supernatural/cosmic]
+- Creatures: [none/implied/visible/abstract]
+- Violence Level: [implied/moderate/intense]`
+    },
+    "romance": {
+        title: "Romance Scene",
+        content: `💕 Romance Template
+
+Scene Type:
+- Moment: [first meeting/proposal/wedding/intimate]
+- Emotion: [passionate/tender/playful/dramatic]
+- Relationship Stage: [new/established/rekindling]
+
+Setting:
+- Location: [beach/garden/city/home/destination]
+- Ambiance: [intimate/grand/casual/luxurious]
+- Time: [sunset/candlelit/morning/starry night]
+
+Subjects:
+- Count: [couple/individual/group]
+- Interaction: [embracing/dancing/gazing/laughing]
+- Clothing: [formal/casual/themed/seasonal]
+- Chemistry: [electric/comfortable/shy/passionate]
+
+Visual Mood:
+- Color Palette: [warm/soft/vibrant/monochrome]
+- Lighting: [golden/soft/romantic/dramatic]
+- Effects: [bokeh/glow/sparkles/none]`
+    },
+    "fantasy": {
+        title: "Fantasy Scene",
+        content: `🧙 Fantasy Template
+
+World Type:
+- Setting: [medieval/modern urban/post-apocalyptic/otherworldly]
+- Magic Level: [high/low/none/steampunk]
+- Tone: [epic/dark/whimsical/gritty]
+
+Characters:
+- Type: [human/elf/dwarf/dragon/mythical creature]
+- Role: [hero/villain/guide/innocent]
+- Powers: [magical/enhanced/normal/cursed]
+- Equipment: [sword/staff/modern/ancient artifacts]
+
+Environment:
+- Landscape: [enchanted forest/castle/floating islands/caverns]
+- Architecture: [medieval/crystalline/organic/ruined]
+- Weather: [magical storm/aurora/normal/supernatural]
+
+Magical Elements:
+- Effects: [glowing/sparkling/swirling/crackling]
+- Creatures: [dragons/unicorns/spirits/demons]
+- Artifacts: [glowing weapons/scrolls/crystals/portals]`
+    },
+    "scifi": {
+        title: "Science Fiction",
+        content: `🚀 Sci-Fi Template
+
+Era:
+- Time Period: [near future/far future/space age/cyberpunk]
+- Tech Level: [advanced/experimental/alien/dystopian]
+- Society: [utopian/dystopian/post-apocalyptic/space-faring]
+
+Setting:
+- Location: [space station/alien planet/megacity/laboratory]
+- Environment: [sterile/industrial/organic/hybrid]
+- Scale: [intimate/vast/claustrophobic/infinite]
+
+Technology:
+- Visible Tech: [holograms/robots/vehicles/weapons]
+- UI Elements: [screens/displays/interfaces/none]
+- Materials: [metal/energy/bio-tech/crystalline]
+
+Characters:
+- Type: [human/android/alien/cyborg]
+- Equipment: [space suit/tech gear/implants/weapons]
+- Role: [explorer/soldier/scientist/rebel]
+
+Visual Style:
+- Color Scheme: [neon/monochrome/natural/alien]
+- Lighting: [artificial/energy-based/natural/mixed]
+- Effects: [lens flares/particles/holograms/distortion]`
+    },
+    
+    // TECHNICAL SPECIALIZED TEMPLATES
+    "architectural": {
+        title: "Architecture",
+        content: `🏗️ Architectural Template
+
+Building Type:
+- Structure: [residential/commercial/religious/industrial]
+- Style: [modern/classical/gothic/minimalist]
+- Age: [new/historic/renovated/ruins]
+
+Perspective:
+- View: [exterior/interior/detail/aerial]
+- Angle: [straight/dramatic/worm's eye/bird's eye]
+- Focus: [whole building/section/detail/pattern]
+
+Lighting:
+- Time: [golden hour/blue hour/midday/night]
+- Source: [natural/artificial/mixed]
+- Mood: [dramatic/clean/moody/bright]
+
+Composition:
+- Lines: [vertical/horizontal/diagonal/curved]
+- Symmetry: [perfect/near/asymmetrical]
+- Framing: [full view/cropped/through elements]
+
+Environment:
+- Surroundings: [urban/rural/isolated/landscaped]
+- Weather: [clear/cloudy/dramatic sky]
+- People: [none/few/crowd/silhouettes]`
+    },
+    "vehicle": {
+        title: "Vehicle Photography",
+        content: `🚗 Vehicle Template
+
+Vehicle Type:
+- Category: [car/motorcycle/truck/aircraft/boat]
+- Style: [classic/modern/futuristic/racing]
+- Condition: [pristine/weathered/battle-damaged]
+
+Action:
+- State: [static/moving/jumping/drifting]
+- Speed: [stationary/slow/fast/extreme]
+- Environment: [road/track/off-road/aerial]
+
+Camera:
+- Position: [front/side/rear/three-quarter]
+- Height: [ground/eye level/elevated/low]
+- Movement: [static/panning/tracking]
+
+Effects:
+- Motion: [none/blur/trails/dust clouds]
+- Lighting: [natural/dramatic/neon/headlights]
+- Particles: [dust/smoke/sparks/water spray]
+
+Setting:
+- Location: [studio/street/highway/track/nature]
+- Time: [day/night/dawn/dusk]
+- Weather: [clear/rain/snow/dramatic]`
+    },
+    "food": {
+        title: "Food Photography",
+        content: `🍽️ Food Template
+
+Dish Type:
+- Category: [appetizer/main/dessert/beverage]
+- Cuisine: [italian/asian/american/fusion]
+- Style: [rustic/fine dining/casual/street food]
+
+Presentation:
+- Plating: [elegant/rustic/modern/traditional]
+- Garnish: [minimal/elaborate/natural/artistic]
+- Portion: [small/medium/large/family style]
+
+Setup:
+- Background: [clean/textured/contextual/dark]
+- Props: [utensils/ingredients/napkins/none]
+- Surface: [wood/marble/metal/fabric]
+
+Lighting:
+- Direction: [top/side/back/mixed]
+- Quality: [soft/dramatic/natural/artificial]
+- Color: [warm/neutral/cool/colored]
+
+Angle:
+- View: [overhead/45 degree/side/close-up]
+- Focus: [entire dish/detail/ingredient/texture]`
+    },
+    "fashion": {
+        title: "Fashion Photography",
+        content: `👗 Fashion Template
+
+Style Type:
+- Category: [haute couture/ready-to-wear/street/editorial]
+- Season: [spring/summer/fall/winter]
+- Trend: [current/vintage/futuristic/timeless]
+
+Model:
+- Pose: [walking/standing/sitting/dynamic]
+- Expression: [confident/serene/intense/playful]
+- Interaction: [solo/group/with props]
+
+Garments:
+- Type: [dress/suit/casual/avant-garde]
+- Fit: [tailored/flowing/oversized/fitted]
+- Details: [textures/patterns/embellishments/minimal]
+
+Setting:
+- Location: [studio/street/nature/architecture]
+- Backdrop: [seamless/textured/environmental]
+- Mood: [clean/gritty/luxurious/natural]
+
+Lighting:
+- Setup: [studio/natural/mixed/dramatic]
+- Mood: [bright/moody/high contrast/soft]
+- Color: [neutral/warm/cool/creative]`
+    },
+    
+    // MOOD-BASED TEMPLATES
+    "vintage": {
+        title: "Vintage Style",
+        content: `📸 Vintage Template
+
+Era:
+- Period: [1920s/1950s/1970s/1980s/1990s]
+- Style: [art deco/mid-century/disco/neon/grunge]
+- Authenticity: [period accurate/inspired by/modern twist]
+
+Visual Treatment:
+- Film Type: [kodachrome/polaroid/black & white/sepia]
+- Grain: [fine/heavy/none/digital]
+- Color: [saturated/faded/monochrome/selective]
+- Damage: [scratches/dust/light leaks/pristine]
+
+Subject Styling:
+- Clothing: [period accurate/inspired/mixed eras]
+- Hair: [authentic style/modern interpretation]
+- Makeup: [period correct/subtle nod/contemporary]
+
+Setting:
+- Environment: [period location/studio/modern with vintage elements]
+- Props: [authentic/reproduction/modern alternatives]
+- Furniture: [original/inspired/minimal]`
+    },
+    "minimalist": {
+        title: "Minimalist Style",
+        content: `⚪ Minimalist Template
+
+Composition:
+- Elements: [single subject/few objects/geometric shapes]
+- Negative Space: [abundant/balanced/strategic]
+- Balance: [symmetrical/asymmetrical/weighted]
+
+Color Palette:
+- Scheme: [monochrome/limited/neutral/single accent]
+- Saturation: [low/medium/high/desaturated]
+- Contrast: [subtle/moderate/high/none]
+
+Subject:
+- Treatment: [clean lines/simple forms/geometric]
+- Detail Level: [essential only/selective/none]
+- Positioning: [centered/rule of thirds/off-center]
+
+Lighting:
+- Quality: [even/soft/dramatic shadows/shadowless]
+- Direction: [front/side/diffused/ambient]
+- Mood: [clean/serene/stark/warm]
+
+Background:
+- Type: [solid color/gradient/texture/empty space]
+- Complexity: [none/minimal/subtle pattern]`
+    },
+    "cinematic": {
+        title: "Cinematic Style",
+        content: `🎬 Cinematic Template
+
+Genre Style:
+- Type: [action/drama/thriller/romance/horror]
+- Era: [classic hollywood/modern/noir/indie]
+- Mood: [epic/intimate/suspenseful/uplifting]
+
+Camera Work:
+- Shot Type: [establishing/close-up/medium/master]
+- Movement: [static/pan/tilt/dolly/handheld]
+- Angle: [eye level/low/high/dutch/overhead]
+- Lens: [wide/normal/telephoto/fisheye]
+
+Lighting:
+- Style: [three-point/natural/dramatic/soft]
+- Color Temperature: [warm/cool/mixed/stylized]
+- Contrast: [high/low/moderate/extreme]
+- Direction: [key/fill/back/practical]
+
+Composition:
+- Framing: [tight/loose/symmetrical/dynamic]
+- Depth: [shallow/deep/layered/flat]
+- Leading Lines: [strong/subtle/none/multiple]
+
+Post Processing:
+- Color Grade: [teal & orange/desaturated/vibrant/monochrome]
+- Film Look: [digital/film grain/vintage/clean]
+- Effects: [lens flares/vignette/bloom/none]`
+    },
+    
+    // ART STYLE TEMPLATES
+    "comic": {
+        title: "Comic Book Style",
+        content: `💥 Comic Book Template
+
+Art Style:
+- Type: [superhero/indie/manga/webcomic]
+- Era: [golden age/silver age/modern/underground]
+- Line Work: [bold/fine/varied/minimal]
+
+Color Treatment:
+- Palette: [primary colors/limited/full spectrum/monochrome]
+- Saturation: [high/moderate/low/selective]
+- Shading: [cell shading/rendered/flat/crosshatch]
+- Effects: [halftone/gradient/solid/textured]
+
+Composition:
+- Panel Style: [single image/comic panel/splash page]
+- Perspective: [dramatic/normal/exaggerated/isometric]
+- Action Lines: [speed/impact/motion/none]
+
+Character Design:
+- Proportions: [realistic/heroic/stylized/chibi]
+- Detail Level: [high/moderate/simplified/iconic]
+- Expression: [exaggerated/subtle/dramatic/stoic]`
+    },
+    "anime": {
+        title: "Anime Style",
+        content: `🎌 Anime Template
+
+Anime Style:
+- Type: [shonen/shoujo/seinen/josei/kodomomuke]
+- Era: [classic/modern/retro/contemporary]
+- Quality: [tv series/movie/ova/manga adaptation]
+
+Character Design:
+- Proportions: [realistic/stylized/chibi/tall & lean]
+- Eyes: [large/normal/small/unique shape]
+- Hair: [spiky/flowing/colorful/realistic]
+- Expression: [cheerful/serious/mysterious/emotional]
+
+Art Treatment:
+- Coloring: [cell shaded/soft shaded/watercolor/digital]
+- Line Weight: [varied/consistent/bold/delicate]
+- Backgrounds: [detailed/simple/abstract/photographic]
+
+Effects:
+- Visual Elements: [speed lines/cherry blossoms/sparkles/auras]
+- Emotional Symbols: [sweat drops/anger marks/hearts/stars]
+- Lighting: [dramatic/soft/magical/realistic]`
+    },
+    "photorealistic": {
+        title: "Photorealistic",
+        content: `📷 Photorealistic Template
+
+Realism Level:
+- Target: [photograph/hyperrealistic/slightly stylized]
+- Detail: [maximum/high/moderate/selective]
+- Imperfections: [include/minimal/perfect/weathered]
+
+Technical Quality:
+- Resolution: [ultra high/high/standard]
+- Sharpness: [tack sharp/slightly soft/selective focus]
+- Noise: [none/minimal/film grain/digital noise]
+
+Lighting:
+- Accuracy: [physically accurate/enhanced/stylized]
+- Complexity: [simple/complex/mixed sources]
+- Shadows: [accurate/enhanced/softened]
+
+Materials:
+- Surfaces: [accurate reflections/enhanced/stylized]
+- Textures: [high detail/moderate/simplified]
+- Subsurface: [accurate/enhanced/simplified]
+
+Camera Simulation:
+- Lens Effects: [bokeh/chromatic aberration/distortion/clean]
+- Depth of Field: [accurate/enhanced/simplified]
+- Exposure: [realistic/optimized/artistic]`
+    }
+};
+
 // System prompt templates
 const systemTemplates = {
     "no-disclaimers": {
@@ -176,6 +673,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const copyBtn = document.getElementById('copy-btn');
     const userToggle = document.getElementById('user-toggle');
     const systemToggle = document.getElementById('system-toggle');
+    const imageToggle = document.getElementById('image-toggle');
     const loadingIndicator = document.getElementById('loading');
     const templatesSection = document.getElementById('templates-section');
     const modal = document.getElementById('template-modal');
@@ -248,6 +746,7 @@ document.addEventListener('DOMContentLoaded', function() {
     userToggle.addEventListener('click', function() {
         userToggle.classList.add('active');
         systemToggle.classList.remove('active');
+        imageToggle.classList.remove('active');
         currentPromptType = 'user';
         updateTemplateButtons();
     });
@@ -255,7 +754,16 @@ document.addEventListener('DOMContentLoaded', function() {
     systemToggle.addEventListener('click', function() {
         systemToggle.classList.add('active');
         userToggle.classList.remove('active');
+        imageToggle.classList.remove('active');
         currentPromptType = 'system';
+        updateTemplateButtons();
+    });
+    
+    imageToggle.addEventListener('click', function() {
+        imageToggle.classList.add('active');
+        userToggle.classList.remove('active');
+        systemToggle.classList.remove('active');
+        currentPromptType = 'image';
         updateTemplateButtons();
     });
     
@@ -265,7 +773,8 @@ document.addEventListener('DOMContentLoaded', function() {
         templatesSection.innerHTML = '';
         
         // Get the current templates based on prompt type
-        const templates = currentPromptType === 'user' ? userTemplates : systemTemplates;
+        const templates = currentPromptType === 'user' ? userTemplates : 
+                         currentPromptType === 'system' ? systemTemplates : imageTemplates;
         
         // Create template buttons
         for (const [key, template] of Object.entries(templates)) {
@@ -289,7 +798,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // Modal functionality
     function openTemplateModal(templateKey, promptType) {
         activeTemplate = templateKey;
-        const templates = promptType === 'user' ? userTemplates : systemTemplates;
+        const templates = promptType === 'user' ? userTemplates : 
+                         promptType === 'system' ? systemTemplates : imageTemplates;
         const template = templates[templateKey];
         
         modalTitle.textContent = template.title;
@@ -310,7 +820,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // Modify use template button to append template instead of replacing
     useTemplateBtn.addEventListener('click', function() {
         if (activeTemplate) {
-            const templates = currentPromptType === 'user' ? userTemplates : systemTemplates;
+            const templates = currentPromptType === 'user' ? userTemplates : 
+                             currentPromptType === 'system' ? systemTemplates : imageTemplates;
             const templateContent = templates[activeTemplate].content;
             
             // Get cursor position
