@@ -423,13 +423,18 @@ def enhance_prompt():
         
         if groq_api_key:
             try:
-                # Initialize Groq client
+                # Initialize Groq client with latest model version
                 import groq
-                client = groq.Client(api_key=groq_api_key)
+                client = groq.Client(
+                    api_key=groq_api_key,
+                    default_headers={
+                        "Groq-Model-Version": "latest"  # Use latest compound model features
+                    }
+                )
                 
-                # Make the API call using the Groq SDK
+                # Make the API call using the Groq SDK with compound model
                 chat_completion = client.chat.completions.create(
-                    model="deepseek-r1-distill-llama-70b",
+                    model="groq/compound",
                     messages=[
                         {"role": "system", "content": system_message},
                         {"role": "user", "content": input_prompt}
@@ -441,7 +446,13 @@ def enhance_prompt():
                 # Extract the enhanced prompt
                 enhanced_prompt = chat_completion.choices[0].message.content.strip()
                 api_provider = "Groq"
-                api_model = "deepseek-r1-distill-llama-70b"
+                api_model = "groq/compound"
+                
+                # Log if compound model used built-in tools (web search, code execution, etc.)
+                if hasattr(chat_completion.choices[0].message, 'executed_tools'):
+                    executed_tools = chat_completion.choices[0].message.executed_tools
+                    if executed_tools:
+                        logger.info(f"Compound model executed {len(executed_tools)} tool(s)")
                 
             except Exception as groq_err:
                 logger.warning(f"Groq API error, will try fallback: {str(groq_err)}")

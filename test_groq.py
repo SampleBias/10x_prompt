@@ -34,17 +34,23 @@ try:
 except Exception as e:
     print(f"ERROR listing models: {type(e).__name__}: {str(e)}")
 
-# Test simple completion
-print("\nTesting completion...")
+# Test simple completion with compound model
+print("\nTesting completion with groq/compound model...")
 try:
     start_time = time.time()
     response = client.chat.completions.create(
         messages=[{"role": "user", "content": "Hello"}],
-        model="llama-3.1-8b-instant"
+        model="groq/compound"
     )
     duration = time.time() - start_time
     print(f"SUCCESS: Response received in {duration:.2f} seconds")
     print(f"Content: {response.choices[0].message.content}")
+    
+    # Check if compound model used any tools
+    if hasattr(response.choices[0].message, 'executed_tools'):
+        executed_tools = response.choices[0].message.executed_tools
+        if executed_tools:
+            print(f"Tools executed: {len(executed_tools)}")
 except Exception as e:
     print(f"ERROR: {type(e).__name__}: {str(e)}")
     if hasattr(e, 'response'):

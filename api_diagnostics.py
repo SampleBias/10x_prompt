@@ -58,13 +58,11 @@ def test_groq_with_sdk():
         except Exception as e:
             logger.error(f"❌ Failed to list models: {type(e).__name__}: {str(e)}")
         
-        # Test with different models
+        # Test with different models (prioritizing latest active models)
         test_models = [
-            "deepseek-r1-distill-llama-70b",  # Primary model
-            "llama-3.1-8b-instant",
-            "llama-3.1-70b-instant",
-            "llama-3.1-8b",
-            "mixtral-8x7b-32768"
+            "groq/compound",                 # Primary: Advanced model with built-in tools
+            "llama-3.3-70b-versatile",       # Fallback: Latest flagship model
+            "llama-3.1-8b-instant",          # Fallback: Fast and reliable
         ]
         
         for model in test_models:
@@ -124,13 +122,11 @@ def test_groq_with_openai():
             max_retries=1
         )
         
-        # Test with different models
+        # Test with different models (prioritizing latest active models)
         test_models = [
-            "deepseek-r1-distill-llama-70b",  # Primary model
-            "llama-3.1-8b-instant",
-            "llama-3.1-70b-instant",
-            "llama-3.1-8b",
-            "mixtral-8x7b-32768"
+            "groq/compound",                 # Primary: Advanced model with built-in tools
+            "llama-3.3-70b-versatile",       # Fallback: Latest flagship model
+            "llama-3.1-8b-instant",          # Fallback: Fast and reliable
         ]
         
         for model in test_models:
